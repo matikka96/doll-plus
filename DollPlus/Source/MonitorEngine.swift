@@ -5,12 +5,13 @@ import Utils
 
 let defaultWindowSize = NSSize(width: 900, height: 600)
 let SETTING_MONITORED_APP_IDS = "SETTING_MONITORED_APP_IDS"
+let configWindowFrameName = "DollPlusConfigWindow"
 
 class MonitorEngine {
 
     static var shared = MonitorEngine()
 
-    var configWindow = NSWindow(contentRect: NSRect(origin: .zero, size: defaultWindowSize), styleMask: [.closable, .titled], backing: .buffered, defer: false)
+    lazy var configWindow = makeConfigWindow()
     var statusBars: [StatusBarController] = []
     @Published var monitoredApps: [MonitoredApp] = []
 
@@ -90,15 +91,27 @@ class MonitorEngine {
     }
 
     func showConfigWindow() {
-        configWindow.isReleasedWhenClosed = false
-        configWindow.title = NSLocalizedString("Doll - badge watcher", comment: "")
-        configWindow.isOpaque = true
-        configWindow.contentViewController = NSHostingController(rootView: ConfigView())
-        configWindow.setContentSize(defaultWindowSize)
-        configWindow.center()
+        // New content reads the settings again, for example a login item that changed in System Settings.
+        if !configWindow.isVisible {
+            let frame = configWindow.frame
+            configWindow.contentViewController = NSHostingController(rootView: ConfigView())
+            configWindow.setFrame(frame, display: false)
+        }
         NSApp.activate(ignoringOtherApps: true)
         configWindow.makeKeyAndOrderFront(nil)
         configWindow.orderFrontRegardless()
+    }
+
+    private func makeConfigWindow() -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: defaultWindowSize), styleMask: [.closable, .titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.title = NSLocalizedString("Doll - badge watcher", comment: "")
+        window.isOpaque = true
+        if !window.setFrameUsingName(configWindowFrameName) {
+            window.center()
+        }
+        window.setFrameAutosaveName(configWindowFrameName)
+        return window
     }
 
     private func saveSelectedApps() {
