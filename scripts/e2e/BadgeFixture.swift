@@ -33,5 +33,6 @@ guard let controlPath = Bundle.main.object(forInfoDictionaryKey: "DollFixtureCon
 let app = NSApplication.shared
 let fixture = BadgeFixture(controlFile: URL(fileURLWithPath: controlPath))
 app.delegate = fixture
-app.setActivationPolicy(.regular)
+let isUIElement = Bundle.main.object(forInfoDictionaryKey: "LSUIElement") as? Bool == true
+app.setActivationPolicy(isUIElement ? .accessory : .regular)
 app.run()
