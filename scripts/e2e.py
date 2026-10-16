@@ -46,6 +46,9 @@ SCREENSHOTS = E2E / "screenshots"
 # `open` makes each ad-hoc signed fixture build its own TCC responsible process,
 # so a control file in ~/Documents causes a prompt for each build.
 CONTROL_DIR = Path.home() / "Library/Caches/com.matikka96.DollPlus.e2e/control"
+# Each scenario starts with a centered config window, not the frame that the last scenario moved.
+# The name after "NSWindow Frame " is configWindowFrameName in MonitorEngine.swift.
+CONFIG_WINDOW_FRAME_KEY = "NSWindow Frame DollPlusConfigWindow"
 LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 POLL = 0.25
@@ -54,6 +57,7 @@ STABLE_WINDOW = 5.0
 RENDER_SETTLE = 1.0
 # Points from the right end of the menu bar. A new status item goes to the left end.
 SEEDED_POSITION = 120
+CONFIG_WINDOW_OFFSET = (60, 40)
 DEMO_BADGES = ("", "1", "12", "123", "new")
 DEMO_STEP = 3.0
 # NSWindow.Level.popUpMenu, the level of the arrow panel and the alert panel.
@@ -289,20 +293,20 @@ def wait_dock_label(fixture: Fixture, text: str):
         raise EnvironmentProblem(f"the Dock did not show the badge {text!r} for {fixture.dock_title}: {error}")
 
 
-def app_state(fixture: Fixture):
-    return probe("--app-state", fixture.bundle_id)
+def app_state(bundle_id: str):
+    return probe("--app-state", bundle_id)
 
 
 def wait_app_state(fixture: Fixture, condition, what: str):
     try:
-        wait_until(lambda: condition(app_state(fixture)), describe=lambda: f"Last state: {app_state(fixture)}")
+        wait_until(lambda: condition(app_state(fixture.bundle_id)), describe=lambda: f"Last state: {app_state(fixture.bundle_id)}")
     except CheckFailed as error:
         raise CheckFailed(f"{fixture.dock_title} did not become {what}: {error}")
 
 
 def deactivate_fixture(fixture: Fixture):
     # A late activation of the other fixture can undo the next click.
-    if not app_state(fixture)["active"]:
+    if not app_state(fixture.bundle_id)["active"]:
         return
     # NSRunningApplication.hide() refuses an accessory app, so another fixture takes the activation.
     other = next(f for f in FIXTURES.values() if f != fixture and f.dock_icon)
@@ -313,6 +317,11 @@ def deactivate_fixture(fixture: Fixture):
 
 def fixture_pids(fixture: Fixture):
     result = subprocess.run(["pgrep", "-x", fixture.bundle_name], capture_output=True, text=True)
+    return [int(pid) for pid in result.stdout.split()]
+
+
+def doll_plus_pids():
+    result = subprocess.run(["pgrep", "-x", "Doll Plus"], capture_output=True, text=True)
     return [int(pid) for pid in result.stdout.split()]
 
 
@@ -466,6 +475,7 @@ class DollPlus:
         self.process = None
 
     def __enter__(self):
+        subprocess.run(["defaults", "delete", APP_BUNDLE_ID, CONFIG_WINDOW_FRAME_KEY], capture_output=True)
         self.start()
         return self
 
@@ -473,7 +483,7 @@ class DollPlus:
         self.stop()
 
     def start(self):
-        if subprocess.run(["pgrep", "-x", "Doll Plus"], capture_output=True).returncode == 0:
+        if doll_plus_pids():
             raise EnvironmentProblem("another Doll Plus process runs. Quit it first")
         if not self.binary.is_file():
             raise EnvironmentProblem(f"{self.binary} does not exist. Run python3 -I scripts/e2e.py build in its worktree")
@@ -547,6 +557,25 @@ class DollPlus:
 
     def remove_row(self, name: str):
         self._config("remove", name)
+
+    def config_frame(self):
+        return self._config("frame")["frame"]
+
+    def show_config_window(self):
+        return self._config("show")["frame"]
+
+    def move_config_window(self):
+        return self._config("move", *map(str, CONFIG_WINDOW_OFFSET))["frame"]
+
+    def close_config_window(self):
+        self._config("close")
+
+    def activate(self):
+        self._config("activate")
+
+    def wait_inactive(self):
+        wait_until(lambda: not app_state(APP_BUNDLE_ID)["active"], describe=lambda: f"Last state: {app_state(APP_BUNDLE_ID)}",
+                   what="Doll Plus did not become inactive")
 
     def app(self, fixture: Fixture):
         apps = self.state().get("apps", [])
@@ -834,6 +863,46 @@ def duplicate_saved_app(doll, a, _, screenshots):
     rows = [r["name"] for r in doll.config_rows()]
     if rows != [a.dock_title]:
         raise CheckFailed(f"the config list shows {rows}, expected {[a.dock_title]}")
+
+
+def assert_config_frame(doll, expected, after: str):
+    if (frame := doll.config_frame()) != expected:
+        raise CheckFailed(f"the config window frame changed from {expected} to {frame} after {after}")
+
+
+@scenario("The config window keeps its frame and selected row when Doll Plus becomes active again",
+          fixtures=("a", "b"), steals_focus=True)
+def config_keeps_state(doll, a, b, screenshots):
+    doll.open_row(a.dock_title)
+    assert_selected_rows(doll, [a.dock_title])
+    moved = doll.move_config_window()
+    run(["open", str(b.app)])
+    wait_app_state(b, lambda s: s["active"], "active")
+    doll.wait_inactive()
+    doll.activate()
+    assert_selection_holds(doll, [a.dock_title])
+    assert_config_frame(doll, moved, "an activation")
+
+
+# A launch from Finder or Spotlight activates Doll Plus. An `open` from a script does not.
+@scenario("The first activation of Doll Plus shows the config window", steals_focus=True)
+def first_activation_shows_config(doll, a, screenshots):
+    doll.activate()
+    wait_until(doll.config_frame, what="the config window did not show after the first activation")
+
+
+@scenario("A second open of Doll Plus shows the closed config window at its last frame, also after a relaunch", steals_focus=True)
+def reopen_shows_config(doll, a, screenshots):
+    moved = doll.move_config_window()
+    doll.close_config_window()
+    run(["open", str(APP)])
+    wait_until(doll.config_frame, what="the config window did not show after a second open")
+    if (pids := doll_plus_pids()) != [doll.process.pid]:
+        raise CheckFailed(f"the second open started another Doll Plus: {pids}")
+    assert_config_frame(doll, moved, "a close and a second open")
+    doll.relaunch()
+    if (frame := doll.show_config_window()) != moved:
+        raise CheckFailed(f"the config window frame changed from {moved} to {frame} after a relaunch")
 
 
 def stored_default(key: str):

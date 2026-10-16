@@ -13,10 +13,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
        }
     }
 
+    private var isFirstActivation = true
+
+    // Upstream: Doll 4. A launch from Finder or Spotlight activates Doll Plus. A launch at login does not.
     func applicationWillBecomeActive(_ notification: Notification) {
-        // https://github.com/xiaogdgenuine/Doll/issues/4
-        // Create new instance if the app relaunch again from Spotlight or manually open by user
+        guard isFirstActivation else {
+            return
+        }
+        isFirstActivation = false
         MonitorEngine.shared.showConfigWindow()
+    }
+
+    // A second launch from Spotlight or Finder.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MonitorEngine.shared.showConfigWindow()
+        return false
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {

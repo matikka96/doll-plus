@@ -105,7 +105,7 @@ func press(_ element: AXUIElement) {
     }
 }
 
-let usage = "usage: config-driver PID rows | buttons | open NAME | toggle LABEL | remove NAME"
+let usage = "usage: config-driver PID rows | buttons | open NAME | toggle LABEL | remove NAME | frame | show | move DX DY | close | activate"
 let arguments = CommandLine.arguments
 guard arguments.count >= 3, let pid = pid_t(arguments[1]) else {
     fail(usage)
@@ -116,18 +116,68 @@ func configWindow() -> AXUIElement? {
     children(of: app).first { subrole($0) == "AXStandardWindow" }
 }
 
-// Each activation of Doll Plus rebuilds the content of the config window: the row selection and the detail pane go away.
-let window = configWindow() ?? {
-    AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+func frame(of window: AXUIElement) -> CGRect? {
+    var origin = CGPoint.zero
+    var size = CGSize.zero
+    guard let positionValue = attribute(window, kAXPositionAttribute), let sizeValue = attribute(window, kAXSizeAttribute),
+          AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin), AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else {
+        return nil
+    }
+    return CGRect(origin: origin, size: size)
+}
+
+func frameJSON(_ frame: CGRect?) -> Any {
+    frame.map { [$0.origin.x, $0.origin.y, $0.width, $0.height] } ?? NSNull()
+}
+
+// A second open sends a reopen event, and the reopen shows the config window.
+func showConfigWindow() -> AXUIElement {
+    if let window = configWindow() {
+        return window
+    }
+    guard let bundle = NSRunningApplication(processIdentifier: pid)?.bundleURL else {
+        fail("no app bundle for the PID \(pid)")
+    }
+    let open = Process()
+    open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    open.arguments = [bundle.path]
+    try! open.run()
+    open.waitUntilExit()
     return waitFor("the config window", configWindow)
-}()
+}
 
 switch (arguments[2], arguments.count > 3 ? arguments[3] : nil) {
 case ("rows", nil):
-    printJSON(rows(in: window).map { ["name": $0.name, "selected": isSelected($0)] })
+    printJSON(rows(in: showConfigWindow()).map { ["name": $0.name, "selected": isSelected($0)] })
 case ("buttons", nil):
-    printJSON(descendants(of: window).filter { role($0) == kAXButtonRole }.compactMap(label))
+    printJSON(descendants(of: showConfigWindow()).filter { role($0) == kAXButtonRole }.compactMap(label))
+case ("frame", nil):
+    printJSON(["frame": frameJSON(configWindow().flatMap(frame(of:)))])
+case ("show", nil):
+    printJSON(["frame": frameJSON(frame(of: showConfigWindow()))])
+case ("move", _?):
+    guard arguments.count == 5, let dx = Double(arguments[3]), let dy = Double(arguments[4]) else {
+        fail(usage)
+    }
+    let window = showConfigWindow()
+    let start = waitFor("the frame of the config window") { frame(of: window)?.origin }
+    var origin = CGPoint(x: start.x + dx, y: start.y + dy)
+    AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, AXValueCreate(.cgPoint, &origin)!)
+    waitFor("the window at \(origin)") { frame(of: window)?.origin == origin }
+    printJSON(["frame": frameJSON(frame(of: window))])
+case ("close", nil):
+    guard let closeButton = attribute(showConfigWindow(), kAXCloseButtonAttribute) else {
+        fail("the config window has no close button")
+    }
+    press(closeButton as! AXUIElement)
+    waitFor("the closed config window") { configWindow() == nil }
+    printJSON(["ok": true])
+case ("activate", nil):
+    AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    waitFor("the frontmost Doll Plus") { attribute(app, kAXFrontmostAttribute) as? Bool == true }
+    printJSON(["ok": true])
 case ("open", let name?):
+    let window = showConfigWindow()
     // A press while the window still loads can have no effect.
     waitFor("the selected row \(name)") { () -> Bool in
         let target = row(named: name, in: window)
@@ -139,6 +189,7 @@ case ("open", let name?):
     }
     printJSON(["ok": true])
 case ("toggle", let checkboxLabel?):
+    let window = showConfigWindow()
     let checkbox = { descendants(of: window).first { role($0) == kAXCheckBoxRole && label($0) == checkboxLabel } }
     let value = { checkbox().flatMap { attribute($0, kAXValueAttribute) as? Int } }
     let before = waitFor("the checkbox \(checkboxLabel)", value)
@@ -146,7 +197,7 @@ case ("toggle", let checkboxLabel?):
     waitFor("a new value of the checkbox \(checkboxLabel)") { value().map { $0 != before } ?? false }
     printJSON(["ok": true])
 case ("remove", let name?):
-    let target = row(named: name, in: window)
+    let target = row(named: name, in: showConfigWindow())
     guard let menuOwner = ([target.content, target.element] + descendants(of: target.element))
         .first(where: { actions(of: $0).contains(kAXShowMenuAction) }) else {
         fail("the row \(name) has no context menu")
