@@ -363,7 +363,7 @@ def localized_name(doll, c, screenshots):
     assert_dock_title_match(doll, c, "6")
 
 
-@scenario("Badges keep working after the Dock restarts", known_issue=5)
+@scenario("Badges keep working after the Dock restarts")
 def dock_restart(doll, a, screenshots):
     set_badge(a, "1")
     wait_dock_label(a, "1")
