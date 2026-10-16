@@ -1,0 +1,5 @@
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = -
+
+// Git ignores Local.xcconfig. Copy Local.xcconfig.example to sign with your own certificate.
+#include? "Local.xcconfig"

@@ -60,6 +60,10 @@ public struct MonitorService {
         !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty
     }
 
+    public static func hasDockElement(appName: String) -> Bool {
+        observedAppInfos[appName]?.appElement != nil
+    }
+
     public static func getBadgeText(appName: String) -> String? {
         guard let targetAppElement = observedAppInfos[appName]?.appElement else {
             return nil
