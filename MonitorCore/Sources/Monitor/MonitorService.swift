@@ -2,6 +2,7 @@ import AppKit
 import Combine
 
 let checkInterval: TimeInterval = 1.0
+let checkTolerance: TimeInterval = 0.25
 let ticksPerFullResolve = 10
 
 public struct MonitorService {
@@ -42,6 +43,7 @@ public struct MonitorService {
 
             tracker.publishBadges()
         }
+        timer?.tolerance = checkTolerance
         timer?.fire()
     }
 

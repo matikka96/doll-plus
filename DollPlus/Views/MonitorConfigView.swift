@@ -11,7 +11,6 @@ import Monitor
 
 struct MonitorConfigView: View {
     var isAddMode = false
-    let itemIndex: Int?
     let appListService = AppListService.shared
 
     @State var destroyed = false
@@ -38,17 +37,9 @@ struct MonitorConfigView: View {
                 selectedAppItem
             }, set: { newSelectedAppItem in
                 if let newSelectedAppItem = newSelectedAppItem {
-                    if let previousMonitoredApp = selectedApp, !isAddMode {
-                        MonitorService.unObserve(bundleId: previousMonitoredApp.bundleId)
+                    guard select(MonitoredApp(newSelectedAppItem.bundleId, appName: newSelectedAppItem.localizedName)) else {
+                        return
                     }
-
-                    let newMonitoredApp = MonitoredApp(newSelectedAppItem.bundleId, appName: newSelectedAppItem.localizedName)
-                    MonitorEngine.shared.monitor(newApp: newMonitoredApp, at: itemIndex, statusBar: statusBar)
-
-                    if selectedApp == nil {
-                        statusBar = MonitorEngine.shared.statusBars.last
-                    }
-                    selectedApp = newMonitoredApp
                 }
 
                 selectedAppItem = newSelectedAppItem
@@ -147,7 +138,30 @@ struct MonitorConfigView: View {
                 }
                         .padding()
             }
+            .onReceive(MonitorEngine.shared.$monitoredApps) { monitoredApps in
+                if !isAddMode, let monitoredApp = statusBar?.monitoredApp, !monitoredApps.contains(monitoredApp) {
+                    destroyed = true
+                }
+            }
         }
+    }
+
+    @discardableResult
+    private func select(_ newMonitoredApp: MonitoredApp) -> Bool {
+        if newMonitoredApp != selectedApp && MonitorEngine.shared.monitoredApps.contains(newMonitoredApp) {
+            return false
+        }
+        if let previousMonitoredApp = selectedApp, !isAddMode {
+            MonitorService.unObserve(bundleId: previousMonitoredApp.bundleId)
+        }
+
+        MonitorEngine.shared.monitor(newApp: newMonitoredApp, statusBar: isAddMode ? nil : statusBar)
+
+        if selectedApp == nil {
+            statusBar = MonitorEngine.shared.statusBars.last
+        }
+        selectedApp = newMonitoredApp
+        return true
     }
 
     private func loadData() {
@@ -171,17 +185,7 @@ struct MonitorConfigView: View {
             guard let bundleId = Bundle(url: appURL)?.bundleIdentifier else {
                 return
             }
-            if let previousMonitoredApp = selectedApp, !isAddMode {
-                MonitorService.unObserve(bundleId: previousMonitoredApp.bundleId)
-            }
-
-            let newMonitoredApp = MonitoredApp(bundleId, appName: AppInfo.displayName(ofAppAt: appURL))
-            MonitorEngine.shared.monitor(newApp: newMonitoredApp, at: itemIndex, statusBar: statusBar)
-
-            if selectedApp == nil {
-                statusBar = MonitorEngine.shared.statusBars.last
-            }
-            selectedApp = newMonitoredApp
+            select(MonitoredApp(bundleId, appName: AppInfo.displayName(ofAppAt: appURL)))
         }
     }
 }
