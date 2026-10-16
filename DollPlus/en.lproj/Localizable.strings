@@ -1,6 +1,7 @@
 "Select an app to monitor its badge" = "􀊫 Select an app to monitor its badge";
 "About" = "About";
 "Stop monitoring" = "Stop monitoring";
+"Remove" = "Remove";
 "Quit" = "Quit";
 "Launch at login" = "Launch at login";
 "Hide icon if monitored app isn't running" = "Hide icon if monitored app isn't running";

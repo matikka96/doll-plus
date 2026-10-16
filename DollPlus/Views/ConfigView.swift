@@ -29,14 +29,16 @@ struct ConfigView: View {
                         .frame(minWidth: 250)
                 } else {
                     List {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { (itemIndex, item) in
+                        ForEach(items) { item in
                             NavigationLink {
-                                let statusBar = MonitorEngine.shared.statusBars.first {
-                                    $0.monitoredApp == item
-                                }
-                                MonitorConfigView(itemIndex: itemIndex, statusBar: statusBar, selectedApp: item)
+                                MonitorConfigView(statusBar: MonitorEngine.shared.statusBar(for: item), selectedApp: item)
                             } label: {
                                 MonitoredAppItemView(appItem: item)
+                            }
+                            .contextMenu {
+                                Button("Remove") {
+                                    MonitorEngine.shared.statusBar(for: item)?.destroy()
+                                }
                             }
                         }
                     }.frame(minWidth: 250)
@@ -112,7 +114,7 @@ struct ConfigView: View {
 
                 HStack {
                     NavigationLink {
-                        MonitorConfigView(isAddMode: true, itemIndex: nil, statusBar: nil)
+                        MonitorConfigView(isAddMode: true, statusBar: nil)
                     } label: {
                         Image(systemName: "plus")
                     }
