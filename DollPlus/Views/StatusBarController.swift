@@ -100,7 +100,7 @@ class StatusBarController {
         }
 
         let appName = app.appName
-        statusItem.autosaveName = "Doll_\(app.bundleId)"
+        statusItem.autosaveName = "DollPlus_\(app.bundleId)"
         updateBadgeText(nil)
 
         guard let monitoredAppIcon = monitoredAppIcon else {

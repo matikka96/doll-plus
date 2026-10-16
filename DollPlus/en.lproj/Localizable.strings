@@ -11,18 +11,19 @@
 "Show only app icon" = "Just show app icon, hide all notifications";
 "Hotkey to open this config window" = "Hotkey to open this config window:";
 
-"About Doll" = "About Doll (%@)";
-"Tip me" = "Buy me a coffee if you love this app! :)";
+"About Doll" = "About Doll Plus (%@)";
+"Tip me" = "Love this app? Buy the original author of Doll a coffee! :)";
 "Buy me a coffee" = "Buy me a coffee";
 "Hold option key ⌥ and click to config" = "Hold option key ⌥ and click to config";
 
 "About author" = "Made by **xiaogd**";
 "How it works?" = "How it works?";
+"Based on" = "Based on Doll by xiaogd:";
 
-"Doll - badge watcher" = "Doll - badge watcher";
-"Open System Preferences" = "Open System Preferences";
+"Doll - badge watcher" = "Doll Plus - badge watcher";
+"Open System Preferences" = "Open System Settings";
 "OK" = "OK";
-"Permission grant guideline" = "Please go to \nSystem Preferences -> Security & Privacy -> Privacy -> Accessibility\nadd Doll to the list so it can monitor badge updates.";
+"Permission grant guideline" = "Please go to \nSystem Settings -> Privacy & Security -> Accessibility\nand add Doll Plus to the list so it can monitor badge updates.";
 "Add monitor guideline" = "No app is monitoring, click \"+\" to add one.";
 
 
