@@ -44,6 +44,7 @@ LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/Launc
 POLL = 0.25
 TIMEOUT = 8.0
 STABLE_WINDOW = 5.0
+RENDER_SETTLE = 1.0
 DEMO_BADGES = ("", "1", "12", "123")
 DEMO_STEP = 3.0
 
@@ -91,7 +92,7 @@ def run(cmd, **kwargs):
     return subprocess.run(cmd, check=True, **kwargs)
 
 
-def wait_until(condition, timeout=TIMEOUT, describe=lambda: ""):
+def wait_until(condition, timeout=TIMEOUT, describe=lambda: "", what=None):
     deadline = time.monotonic() + timeout
     while True:
         result = condition()
@@ -99,7 +100,8 @@ def wait_until(condition, timeout=TIMEOUT, describe=lambda: ""):
             return result
         if time.monotonic() > deadline:
             detail = describe()
-            raise CheckFailed(f"timed out after {timeout:.0f} s" + (f". {detail}" if detail else ""))
+            message = f"timed out after {timeout:.0f} s" + (f". {detail}" if detail else "")
+            raise CheckFailed(f"{what}: {message}" if what else message)
         time.sleep(POLL)
 
 
@@ -256,8 +258,12 @@ class DollPlus:
         }
         args = [str(self.binary)] + [token for key, value in settings.items() for token in (f"-{key}", value)]
         self.process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
-        wait_until(lambda: len(self.state().get("apps", [])) == len(self.fixtures),
-                   describe=lambda: f"state: {self.state()}")
+        try:
+            wait_until(lambda: len(self.state().get("apps", [])) == len(set(self.fixtures)),
+                       describe=lambda: f"state: {self.state()}")
+        except BaseException:
+            self.__exit__()
+            raise
         return self
 
     def __exit__(self, *exc):
@@ -276,7 +282,7 @@ class DollPlus:
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
-    def config(self, *args):
+    def _config(self, *args):
         result = subprocess.run([str(CONFIG_DRIVER), str(self.process.pid), *args], capture_output=True, text=True)
         try:
             output = json.loads(result.stdout)
@@ -286,15 +292,28 @@ class DollPlus:
             raise CheckFailed(f"config window: {output.get('error')}")
         return output
 
+    def config_rows(self):
+        return self._config("rows")
+
+    def config_buttons(self):
+        return self._config("buttons")
+
+    def open_row(self, name: str):
+        self._config("open", name)
+
+    def toggle_setting(self, label: str):
+        self._config("toggle", label)
+
+    def remove_row(self, name: str):
+        self._config("remove", name)
+
     def app(self, fixture: Fixture):
         apps = self.state().get("apps", [])
         return next((a for a in apps if a["bundleId"] == fixture.bundle_id), None)
 
     def wait_app(self, fixture: Fixture, condition, what: str, timeout=TIMEOUT):
-        try:
-            return wait_until(lambda: (a := self.app(fixture)) is not None and condition(a) and a, timeout=timeout)
-        except CheckFailed as error:
-            raise CheckFailed(f"{what}: {error}. Last state: {self.app(fixture)}")
+        return wait_until(lambda: (a := self.app(fixture)) is not None and condition(a) and a, timeout=timeout,
+                          describe=lambda: f"Last state: {self.app(fixture)}", what=what)
 
     def wait_badge(self, fixture: Fixture, text: str, timeout=TIMEOUT):
         return self.wait_app(fixture, lambda a: a["badge"] == text,
@@ -443,31 +462,45 @@ def no_redraw_red_badge(doll, a, screenshots):
 
 
 def assert_selected_rows(doll, names):
-    try:
-        wait_until(lambda: [r["name"] for r in doll.config("rows") if r["selected"]] == names,
-                   describe=lambda: f"rows: {doll.config('rows')}")
-    except CheckFailed as error:
-        raise CheckFailed(f"the selected rows are not {names}: {error}")
+    wait_until(lambda: [r["name"] for r in doll.config_rows() if r["selected"]] == names,
+               describe=lambda: f"rows: {doll.config_rows()}", what=f"the selected rows are not {names}")
 
 
 @scenario("A config row stays selected after a setting changes", fixtures=("a", "b"))
 def row_keeps_selection(doll, a, b, screenshots):
-    doll.config("open", a.dock_title)
+    doll.open_row(a.dock_title)
     assert_selected_rows(doll, [a.dock_title])
-    doll.config("toggle", "Hide icon if monitored app isn't running")
-    time.sleep(1)
+    doll.toggle_setting("Hide icon if monitored app isn't running")
+    time.sleep(RENDER_SETTLE)
     assert_selected_rows(doll, [a.dock_title])
 
 
 @scenario("The Remove item of a config row stops monitoring the app", fixtures=("a", "b"))
 def remove_from_list(doll, a, b, screenshots):
-    doll.config("remove", b.dock_title)
-    try:
-        wait_until(lambda: [app["bundleId"] for app in doll.state().get("apps", [])] == [a.bundle_id],
-                   describe=lambda: f"state: {doll.state().get('apps')}")
-    except CheckFailed as error:
-        raise CheckFailed(f"Doll Plus still monitors {b.dock_title}: {error}")
-    rows = [r["name"] for r in doll.config("rows")]
+    doll.remove_row(b.dock_title)
+    wait_until(lambda: [app["bundleId"] for app in doll.state().get("apps", [])] == [a.bundle_id],
+               describe=lambda: f"state: {doll.state().get('apps')}", what=f"Doll Plus still monitors {b.dock_title}")
+    rows = [r["name"] for r in doll.config_rows()]
+    if rows != [a.dock_title]:
+        raise CheckFailed(f"the config list shows {rows}, expected {[a.dock_title]}")
+
+
+def detail_pane_open(doll, fixture):
+    return f'Stop monitoring - "{fixture.dock_title}"' in doll.config_buttons()
+
+
+@scenario("Removing the open config row closes its detail pane", fixtures=("a", "b"))
+def remove_open_row(doll, a, b, screenshots):
+    doll.open_row(b.dock_title)
+    wait_until(lambda: detail_pane_open(doll, b), what=f"the detail pane of {b.dock_title} did not open")
+    doll.remove_row(b.dock_title)
+    wait_until(lambda: not detail_pane_open(doll, b), describe=lambda: f"buttons: {doll.config_buttons()}",
+               what=f"the detail pane of the removed row {b.dock_title} stays open")
+
+
+@scenario("A bundle ID saved twice gives one config row", fixtures=("a", "a"))
+def duplicate_saved_app(doll, a, _, screenshots):
+    rows = [r["name"] for r in doll.config_rows()]
     if rows != [a.dock_title]:
         raise CheckFailed(f"the config list shows {rows}, expected {[a.dock_title]}")
 
