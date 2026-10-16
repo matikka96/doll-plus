@@ -1,7 +1,6 @@
 import SwiftUI
 import Utils
 import Monitor
-import LaunchAtLogin
 
 struct AboutView: View {
     var body: some View {

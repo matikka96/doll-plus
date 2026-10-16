@@ -145,7 +145,7 @@ enum Utils {
         AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &frontmostWindowAX)
 
         if frontmostWindowAX != nil {
-            return frontmostWindowAX as! AXUIElement
+            return (frontmostWindowAX as! AXUIElement)
         }
 
         return nil

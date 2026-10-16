@@ -1,12 +1,5 @@
-//
-//  ConfigView.swift
-//  Doll
-//
-//  Created by huikai on 2022/6/10.
-//
-
 import SwiftUI
-import LaunchAtLogin
+import ServiceManagement
 import Monitor
 import KeyboardShortcuts
 
@@ -18,7 +11,7 @@ struct ConfigView: View {
     @State private var showingSetupView = false
     @State private var showAboutPage = false
 
-    @State private var startAtLogin = false
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hideWhenAppNotRunning = AppSettings.hideWhenAppNotRunning
     @State private var hideWhenNothingComing = AppSettings.hideWhenNothingComing
     @State private var grayoutIconWhenNothingComing = AppSettings.grayoutIconWhenNothingComing
@@ -52,8 +45,18 @@ struct ConfigView: View {
                 Spacer()
 
                 VStack(alignment: .leading, spacing: 12) {
-                    LaunchAtLogin.Toggle {
-                                Text("Launch at login")
+                    Toggle("Launch at login", isOn: $launchAtLogin)
+                            .onChange(of: launchAtLogin) { enabled in
+                                do {
+                                    if enabled {
+                                        try SMAppService.mainApp.register()
+                                    } else {
+                                        try SMAppService.mainApp.unregister()
+                                    }
+                                } catch {
+                                    print("Error while updating launch at login", error)
+                                    launchAtLogin = SMAppService.mainApp.status == .enabled
+                                }
                             }
                             .padding([.top])
 

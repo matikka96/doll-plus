@@ -241,7 +241,6 @@ class StatusBarController {
         let now = Date()
         if !giantBadgePanel.isVisible || now.timeIntervalSince(lastTimeShowingGiantBadge) >= 3 {
             lastTimeShowingGiantBadge = now
-            let currentActiveWindowIsFullScreen = Utils.currentActiveWindowIsFullScreen
 
             if giantBadgePanel.contentViewController != nil {
                 giantBadgeController.animationFlag.toggle()
