@@ -50,7 +50,7 @@ STABLE_WINDOW = 5.0
 RENDER_SETTLE = 1.0
 # Points from the right end of the menu bar. A new status item goes to the left end.
 SEEDED_POSITION = 120
-DEMO_BADGES = ("", "1", "12", "123")
+DEMO_BADGES = ("", "1", "12", "123", "new")
 DEMO_STEP = 3.0
 
 
