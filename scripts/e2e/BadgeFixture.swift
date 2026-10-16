@@ -35,4 +35,10 @@ let fixture = BadgeFixture(controlFile: URL(fileURLWithPath: controlPath))
 app.delegate = fixture
 let isUIElement = Bundle.main.object(forInfoDictionaryKey: "LSUIElement") as? Bool == true
 app.setActivationPolicy(isUIElement ? .accessory : .regular)
+// An active accessory app with no window loses the activation a few seconds after a status item press.
+let window = isUIElement ? NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 80), styleMask: [.titled],
+                                    backing: .buffered, defer: false) : nil
+window?.title = Bundle.main.bundleURL.deletingPathExtension().lastPathComponent
+window?.center()
+window?.makeKeyAndOrderFront(nil)
 app.run()

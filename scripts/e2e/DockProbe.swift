@@ -45,6 +45,11 @@ if let pid = argument(after: "--press-status-item").flatMap(pid_t.init) {
     exit(result == .success ? 0 : 5)
 }
 
+func onScreenWindowCount(pid: pid_t) -> Int {
+    let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+    return windows.filter { $0[kCGWindowOwnerPID as String] as? pid_t == pid }.count
+}
+
 if let bundleId = argument(after: "--app-state") {
     let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first
     printJSON([
@@ -52,6 +57,7 @@ if let bundleId = argument(after: "--app-state") {
         "running": app != nil,
         "active": app?.isActive ?? false,
         "hidden": app?.isHidden ?? false,
+        "on_screen_windows": app.map { onScreenWindowCount(pid: $0.processIdentifier) } ?? 0,
     ])
     exit(0)
 }
