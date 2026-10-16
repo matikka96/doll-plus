@@ -95,3 +95,4 @@ iOSInjectionProject/
 
 # Doll Plus
 Config/Local.xcconfig
+__pycache__/
