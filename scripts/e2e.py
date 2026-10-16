@@ -545,7 +545,7 @@ def delete_status_item_keys(fixture: Fixture):
         subprocess.run(["defaults", "delete", APP_BUNDLE_ID, key], capture_output=True)
 
 
-def show_and_get_x(doll, fixture: Fixture) -> float:
+def show_status_item_x(doll, fixture: Fixture) -> float:
     set_badge(fixture, "1")
     wait_dock_label(fixture, "1")
     doll.wait_app(fixture, lambda a: a["visible"] and a["badge"] == "1", "the status item did not show")
@@ -558,11 +558,12 @@ def show_and_get_x(doll, fixture: Fixture) -> float:
         previous = x
         return settled_x
 
+    # The menu bar moves a status item with an animation after a show.
     time.sleep(RENDER_SETTLE)
     return wait_until(settled, describe=lambda: f"the status item frame changes: {doll.app(fixture)}")
 
 
-def hide(doll, fixture: Fixture):
+def hide_status_item(doll, fixture: Fixture):
     set_badge(fixture, "")
     wait_dock_label(fixture, "")
     doll.wait_app(fixture, lambda a: not a["visible"], "the status item did not hide")
@@ -575,13 +576,13 @@ def hide_keeps_position(doll, a, screenshots):
         delete_status_item_keys(a)
         run(["defaults", "write", APP_BUNDLE_ID, a.position_key, "-float", str(SEEDED_POSITION)])
         doll.relaunch()
-        seeded_x = show_and_get_x(doll, a)
-        hide(doll, a)
-        if (x := show_and_get_x(doll, a)) != seeded_x:
+        seeded_x = show_status_item_x(doll, a)
+        hide_status_item(doll, a)
+        if (x := show_status_item_x(doll, a)) != seeded_x:
             raise CheckFailed(f"the status item moved from x {seeded_x:.0f} to x {x:.0f} after a hide and a show")
-        hide(doll, a)
+        hide_status_item(doll, a)
         doll.relaunch()
-        if (x := show_and_get_x(doll, a)) != seeded_x:
+        if (x := show_status_item_x(doll, a)) != seeded_x:
             raise CheckFailed(f"the status item moved from x {seeded_x:.0f} to x {x:.0f} after a hide and a relaunch")
         if stored_default(a.position_key) is None:
             raise CheckFailed(f"the stored settings have no {a.position_key!r}")
@@ -648,7 +649,18 @@ def command_run(names, screenshots):
         return run_selected(selected, screenshots)
 
 
+def bundle_id_of(binary: Path):
+    try:
+        with open(binary.parents[1] / "Info.plist", "rb") as f:
+            return plistlib.load(f).get("CFBundleIdentifier")
+    except FileNotFoundError:
+        return None
+
+
 def command_demo(binary: Path, red_badge: bool, hide_when_empty: bool, cycles: int):
+    if bundle_id_of(binary) != APP_BUNDLE_ID:
+        sys.exit(f"ERROR  {binary} is not an e2e copy with the bundle ID {APP_BUNDLE_ID}. "
+                 "Another copy changes the stored settings of the user")
     a = FIXTURES["a"]
     with dock_lock():
         try:
@@ -696,7 +708,7 @@ def main():
     r.add_argument("--screenshots", action="store_true")
     sub.add_parser("list")
     d = sub.add_parser("demo")
-    d.add_argument("--app", type=Path, default=APP_BINARY, help="Doll Plus.app or its binary, for example the build of a PR worktree")
+    d.add_argument("--app", type=Path, default=APP_BINARY, help="the e2e copy of Doll Plus.app or its binary, for example build/e2e/Doll Plus.app of a PR worktree")
     d.add_argument("--red-badge", action="store_true")
     d.add_argument("--hide-when-empty", action="store_true", help="hide the status item while the badge is empty")
     d.add_argument("--cycles", type=int, default=5)
