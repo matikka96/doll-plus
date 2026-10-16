@@ -44,6 +44,7 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
+@discardableResult
 func waitFor<T>(_ what: String, timeout: TimeInterval = 5, _ find: () -> T?) -> T {
     let deadline = Date().addingTimeInterval(timeout)
     while true {
@@ -103,7 +104,16 @@ case ("rows", nil):
 case ("buttons", nil):
     printJSON(descendants(of: window).filter { role($0) == kAXButtonRole }.compactMap(label))
 case ("open", let name?):
-    press(row(named: name, in: window).content)
+    // A press while the window still loads can have no effect.
+    waitFor("the selected row \(name)") { () -> Bool? in
+        let target = row(named: name, in: window)
+        if attribute(target.element, kAXSelectedAttribute) as? Bool == true {
+            return true
+        }
+        AXUIElementPerformAction(target.content, kAXPressAction as CFString)
+        Thread.sleep(forTimeInterval: 0.5)
+        return nil
+    }
     printJSON(["ok": true])
 case ("toggle", let checkboxLabel?):
     press(waitFor("the checkbox \(checkboxLabel)") {
@@ -116,7 +126,7 @@ case ("remove", let name?):
         .first(where: { actions(of: $0).contains(kAXShowMenuAction) }) else {
         fail("the row \(name) has no context menu")
     }
-    // The menu runs a tracking loop, so Doll Plus answers the action only after the menu closes.
+    // NSMenu tracking delays the reply to AXShowMenu until the menu closes.
     AXUIElementSetMessagingTimeout(menuOwner, 0.5)
     AXUIElementPerformAction(menuOwner, kAXShowMenuAction as CFString)
     let item = waitFor("the Remove menu item") {

@@ -30,7 +30,7 @@ BUILD = ROOT / "build"
 E2E = BUILD / "e2e"
 DERIVED_DATA = BUILD / "DerivedData"
 BUILT_APP = DERIVED_DATA / "Build/Products/Debug/Doll Plus.app"
-# A separate bundle ID gives the scenarios their own settings domain. The stored settings of the user stay unchanged.
+# Its own bundle ID gives the copy its own UserDefaults domain, apart from the stored settings of the user.
 APP = E2E / "Doll Plus.app"
 APP_BUNDLE_ID = "com.matikka96.DollPlus.e2e"
 APP_BINARY = APP / "Contents/MacOS/Doll Plus"
@@ -495,7 +495,8 @@ def detail_pane_open(doll, fixture):
 @scenario("Removing the open config row closes its detail pane", fixtures=("a", "b"))
 def remove_open_row(doll, a, b, screenshots):
     doll.open_row(b.dock_title)
-    wait_until(lambda: detail_pane_open(doll, b), what=f"the detail pane of {b.dock_title} did not open")
+    wait_until(lambda: detail_pane_open(doll, b), describe=lambda: f"rows: {doll.config_rows()}, buttons: {doll.config_buttons()}",
+               what=f"the detail pane of {b.dock_title} did not open")
     doll.remove_row(b.dock_title)
     wait_until(lambda: not detail_pane_open(doll, b), describe=lambda: f"buttons: {doll.config_buttons()}",
                what=f"the detail pane of the removed row {b.dock_title} stays open")
