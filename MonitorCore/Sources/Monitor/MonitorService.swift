@@ -56,9 +56,35 @@ public struct MonitorService {
         tracker.unObserve(bundleId: bundleId)
     }
 
-    public static func openMonitoredApp(bundleId: String) {
-        if let element = tracker.element(for: bundleId) {
-            AXUIElementPerformAction(element, kAXPressAction as CFString)
+    public static func toggleMonitoredApp(bundleId: String) {
+        let instances = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+        if let activeInstance = instances.first(where: \.isActive) {
+            // hide() refuses an accessory app.
+            if !activeInstance.hide() {
+                hideThroughAccessibility(activeInstance)
+            }
+        } else {
+            showMonitoredApp(bundleId: bundleId)
+        }
+    }
+
+    public static func showMonitoredApp(bundleId: String) {
+        // Launch Services can start a second instance from another path, so prefer the running copy.
+        let runningURL = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first?.bundleURL
+        guard let url = runningURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
+            return
+        }
+        // Unlike activate(), an open sends the reopen event of a Dock click, so an app with no window shows one.
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+    }
+
+    private static func hideThroughAccessibility(_ app: NSRunningApplication) {
+        let result = AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier),
+                                                  kAXHiddenAttribute as CFString, kCFBooleanTrue)
+        if result != .success {
+            print("Could not hide \(app.bundleIdentifier ?? "\(app.processIdentifier)"): AXError \(result.rawValue)")
         }
     }
 
