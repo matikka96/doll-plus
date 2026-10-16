@@ -30,6 +30,9 @@ class StatusBarController {
         }
     }
     private var monitoredAppIcon: NSImage?
+    private var position: StatusItemPosition? {
+        monitoredApp.map { StatusItemPosition(bundleId: $0.bundleId) }
+    }
 
     init() {
         setupStatusBar()
@@ -83,8 +86,15 @@ class StatusBarController {
     }
 
     func monitorApp(app: MonitoredApp) {
+        if monitoredApp != app {
+            position?.forget()
+        }
+        let newPosition = StatusItemPosition(bundleId: app.bundleId)
+        // macOS reads the position when the item gets its autosave name, and can drop it for a hidden item.
+        newPosition.backUp()
+        newPosition.restore()
+        statusItem.autosaveName = newPosition.autosaveName
         monitoredApp = app
-        statusItem.autosaveName = "DollPlus_\(app.bundleId)"
         statusItem.button?.toolTip = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleId) == nil
             ? String(format: NSLocalizedString("%@ is not installed. Click to choose another app", comment: ""), app.appName)
             : nil
@@ -114,15 +124,23 @@ class StatusBarController {
     }
 
     func hideStatusBar() {
-        if statusItem.isVisible {
-            statusItem.isVisible = false
+        guard statusItem.isVisible else {
+            return
         }
+        position?.backUp()
+        statusItem.isVisible = false
+    }
+
+    func showStatusBar() {
+        guard !statusItem.isVisible else {
+            return
+        }
+        position?.restore()
+        statusItem.isVisible = true
     }
 
     func updateBadgeText(_ text: String?, force: Bool = false) {
-        if !statusItem.isVisible {
-            statusItem.isVisible = true
-        }
+        showStatusBar()
 
         let newText = text ?? ""
         let state = DrawnState(text: newText,
@@ -270,6 +288,7 @@ class StatusBarController {
             MonitorService.unObserve(bundleId: monitoredApp.bundleId)
             MonitorEngine.shared.unMonitor(app: monitoredApp)
             statusBar.removeStatusItem(statusItem)
+            position?.forget()
             AppSettings.toggleGiantBadge(for: monitoredApp.bundleId, value: false)
         }
     }
@@ -304,6 +323,33 @@ private final class NonKeyPanel: NSPanel {
 // In a window that is not key, AppKit gives the first click to the view only with acceptsFirstMouse.
 private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+private struct StatusItemPosition {
+    let bundleId: String
+
+    var autosaveName: String { "DollPlus_\(bundleId)" }
+    // macOS removes this key when the item hides (Apple feedback FB9052637).
+    private var systemKey: String { "NSStatusItem Preferred Position \(autosaveName)" }
+    private var backupKey: String { "DollPlus_SavedPosition_\(bundleId)" }
+
+    func backUp() {
+        if let position = UserDefaults.standard.object(forKey: systemKey) {
+            UserDefaults.standard.set(position, forKey: backupKey)
+        }
+    }
+
+    func restore() {
+        guard UserDefaults.standard.object(forKey: systemKey) == nil,
+              let backup = UserDefaults.standard.object(forKey: backupKey) else {
+            return
+        }
+        UserDefaults.standard.set(backup, forKey: systemKey)
+    }
+
+    func forget() {
+        UserDefaults.standard.removeObject(forKey: backupKey)
+    }
 }
 
 private struct DrawnState: Equatable {
