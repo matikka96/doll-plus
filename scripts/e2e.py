@@ -41,6 +41,11 @@ LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/Launc
 POLL = 0.25
 TIMEOUT = 8.0
 STABLE_WINDOW = 5.0
+# The menu bar moves a status item with an animation after a show.
+SHOW_ANIMATION = 1.0
+APP_DEFAULTS_DOMAIN = "com.matikka96.DollPlus"
+# Points from the right end of the menu bar. A new status item goes to the left end.
+SEEDED_POSITION = 120
 DEMO_BADGES = ("", "1", "12", "123")
 DEMO_STEP = 3.0
 
@@ -65,6 +70,18 @@ class Fixture:
     @property
     def dock_title(self) -> str:
         return self.localized_display_name or self.display_name or self.bundle_name
+
+    @property
+    def autosave_name(self) -> str:
+        return f"DollPlus_{self.bundle_id}"
+
+    @property
+    def position_key(self) -> str:
+        return f"NSStatusItem Preferred Position {self.autosave_name}"
+
+    @property
+    def status_item_keys(self) -> list[str]:
+        return [self.position_key, f"NSStatusItem VisibleCC {self.autosave_name}", f"DollPlus_SavedPosition_{self.bundle_id}"]
 
 
 FIXTURES = {
@@ -212,14 +229,22 @@ def restart_dock():
 
 
 class DollPlus:
-    def __init__(self, scenario: str, fixtures, red_badge: bool, binary: Path = APP_BINARY):
+    def __init__(self, scenario: str, fixtures, red_badge: bool, hide_when_empty: bool = False, binary: Path = APP_BINARY):
         self.scenario = scenario
         self.fixtures = fixtures
         self.red_badge = red_badge
+        self.hide_when_empty = hide_when_empty
         self.binary = binary
         self.process = None
 
     def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.stop()
+
+    def start(self):
         if subprocess.run(["pgrep", "-x", "Doll Plus"], capture_output=True).returncode == 0:
             raise EnvironmentProblem("another Doll Plus process runs. Quit it first")
         if not self.binary.is_file():
@@ -232,7 +257,7 @@ class DollPlus:
             "SETTINGS_Show_As_Red_Badge": plist_bool(self.red_badge),
             "SETTINGS_Show_Only_App_Icon": plist_bool(False),
             "SETTINGS_Hide_When_App_Not_Running": plist_bool(False),
-            "SETTINGS_Hide_When_Nothing_Coming": plist_bool(False),
+            "SETTINGS_Hide_When_Nothing_Coming": plist_bool(self.hide_when_empty),
             "SETTINGS_Grayout_Icon_When_Nothing_Coming": plist_bool(False),
             "SETTINGS_SHOW_ALERT_IN_FULL_SCREEN_Mode": plist_bool(False),
             "SETTINGS_Giant_Badge_Enabled_Apps": "<dict/>",
@@ -244,15 +269,18 @@ class DollPlus:
         self.process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
         wait_until(lambda: len(self.state().get("apps", [])) == len(self.fixtures),
                    describe=lambda: f"state: {self.state()}")
-        return self
 
-    def __exit__(self, *exc):
+    def stop(self):
         if self.process and self.process.poll() is None:
             self.process.terminate()
             try:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+
+    def relaunch(self):
+        self.stop()
+        self.start()
 
     def state(self):
         if self.process and self.process.poll() is not None:
@@ -306,15 +334,16 @@ class Scenario:
     body: object
     known_issue: int | None = None
     red_badge: bool = False
+    hide_when_empty: bool = False
 
 
 SCENARIOS: list[Scenario] = []
 
 
-def scenario(summary, fixtures=("a",), known_issue=None, red_badge=False):
+def scenario(summary, fixtures=("a",), known_issue=None, red_badge=False, hide_when_empty=False):
     def register(body):
         SCENARIOS.append(Scenario(body.__name__.replace("_", "-"), summary,
-                                  tuple(FIXTURES[k] for k in fixtures), body, known_issue, red_badge))
+                                  tuple(FIXTURES[k] for k in fixtures), body, known_issue, red_badge, hide_when_empty))
         return body
     return register
 
@@ -420,6 +449,61 @@ def no_redraw_red_badge(doll, a, screenshots):
 
 
 
+def stored_default(key: str):
+    result = subprocess.run(["defaults", "read", APP_DEFAULTS_DOMAIN, key], capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def delete_status_item_keys(fixture: Fixture):
+    for key in fixture.status_item_keys:
+        subprocess.run(["defaults", "delete", APP_DEFAULTS_DOMAIN, key], capture_output=True)
+
+
+def show_and_get_x(doll, fixture: Fixture) -> float:
+    set_badge(fixture, "1")
+    wait_dock_label(fixture, "1")
+    doll.wait_app(fixture, lambda a: a["visible"] and a["badge"] == "1", "the status item did not show")
+    previous = None
+
+    def settled():
+        nonlocal previous
+        x = doll.app(fixture)["frame"][0]
+        settled_x = x if x == previous else None
+        previous = x
+        return settled_x
+
+    time.sleep(SHOW_ANIMATION)
+    return wait_until(settled, describe=lambda: f"the status item frame changes: {doll.app(fixture)}")
+
+
+def hide(doll, fixture: Fixture):
+    set_badge(fixture, "")
+    wait_dock_label(fixture, "")
+    doll.wait_app(fixture, lambda a: not a["visible"], "the status item did not hide")
+
+
+# A launch argument cannot seed the position: the argument domain hides the removal of the stored key.
+@scenario("A status item keeps its menu bar position when it hides and shows", hide_when_empty=True)
+def hide_keeps_position(doll, a, screenshots):
+    try:
+        delete_status_item_keys(a)
+        run(["defaults", "write", APP_DEFAULTS_DOMAIN, a.position_key, "-float", str(SEEDED_POSITION)])
+        doll.relaunch()
+        seeded_x = show_and_get_x(doll, a)
+        hide(doll, a)
+        if (x := show_and_get_x(doll, a)) != seeded_x:
+            raise CheckFailed(f"the status item moved from x {seeded_x:.0f} to x {x:.0f} after a hide and a show")
+        hide(doll, a)
+        doll.relaunch()
+        if (x := show_and_get_x(doll, a)) != seeded_x:
+            raise CheckFailed(f"the status item moved from x {seeded_x:.0f} to x {x:.0f} after a hide and a relaunch")
+        if stored_default(a.position_key) is None:
+            raise CheckFailed(f"the stored settings have no {a.position_key!r}")
+    finally:
+        doll.stop()
+        delete_status_item_keys(a)
+
+
 def reset_fixtures(fixtures):
     for fixture in FIXTURES.values():
         if fixture_pids(fixture):
@@ -433,7 +517,7 @@ def reset_fixtures(fixtures):
 def run_scenario(s: Scenario, screenshots: bool) -> str:
     try:
         reset_fixtures(s.fixtures)
-        with DollPlus(s.name, s.fixtures, s.red_badge) as doll:
+        with DollPlus(s.name, s.fixtures, s.red_badge, s.hide_when_empty) as doll:
             s.body(doll, *s.fixtures, screenshots)
         detail = ""
         outcome = "XPASS" if s.known_issue else "PASS"
@@ -478,13 +562,13 @@ def command_run(names, screenshots):
         return run_selected(selected, screenshots)
 
 
-def command_demo(binary: Path, red_badge: bool, cycles: int):
+def command_demo(binary: Path, red_badge: bool, hide_when_empty: bool, cycles: int):
     a = FIXTURES["a"]
     with dock_lock():
         try:
             require_trusted()
             reset_fixtures((a,))
-            with DollPlus("demo", (a,), red_badge, binary):
+            with DollPlus("demo", (a,), red_badge, hide_when_empty, binary):
                 print(f"Doll Plus shows {a.dock_title}. The badge changes every {DEMO_STEP:.0f} s. Press Ctrl-C to stop.", flush=True)
                 for _ in range(cycles):
                     for badge in DEMO_BADGES:
@@ -528,6 +612,7 @@ def main():
     d = sub.add_parser("demo")
     d.add_argument("--app", type=Path, default=APP_BINARY, help="Doll Plus.app or its binary, for example the build of a PR worktree")
     d.add_argument("--red-badge", action="store_true")
+    d.add_argument("--hide-when-empty", action="store_true", help="hide the status item while the badge is empty")
     d.add_argument("--cycles", type=int, default=5)
     args = parser.parse_args()
 
@@ -545,7 +630,7 @@ def main():
         sys.exit(command_run(args.names, args.screenshots))
     elif args.command == "demo":
         app = args.app.resolve()
-        command_demo(app / "Contents/MacOS/Doll Plus" if app.suffix == ".app" else app, args.red_badge, args.cycles)
+        command_demo(app / "Contents/MacOS/Doll Plus" if app.suffix == ".app" else app, args.red_badge, args.hide_when_empty, args.cycles)
 
 
 if __name__ == "__main__":
