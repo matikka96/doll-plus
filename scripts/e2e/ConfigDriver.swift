@@ -44,18 +44,33 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
-@discardableResult
-func waitFor<T>(_ what: String, timeout: TimeInterval = 5, _ find: () -> T?) -> T {
+func poll<T>(timeout: TimeInterval, _ find: () -> T?) -> T? {
     let deadline = Date().addingTimeInterval(timeout)
     while true {
         if let found = find() {
             return found
         }
         if Date() > deadline {
-            fail("\(what) not found")
+            return nil
         }
         Thread.sleep(forTimeInterval: 0.1)
     }
+}
+
+@discardableResult
+func waitFor<T>(_ what: String, timeout: TimeInterval = 5, _ find: () -> T?) -> T {
+    guard let found = poll(timeout: timeout, find) else {
+        fail("\(what) not found")
+    }
+    return found
+}
+
+func poll(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+    poll(timeout: timeout) { condition() ? true : nil } ?? false
+}
+
+func waitFor(_ what: String, timeout: TimeInterval = 5, _ condition: () -> Bool) {
+    waitFor(what, timeout: timeout) { condition() ? true : nil }
 }
 
 struct Row {
@@ -79,6 +94,10 @@ func row(named name: String, in window: AXUIElement) -> Row {
     waitFor("the row \(name)") { rows(in: window).first { $0.name == name } }
 }
 
+func isSelected(_ row: Row) -> Bool {
+    attribute(row.element, kAXSelectedAttribute) as? Bool ?? false
+}
+
 func press(_ element: AXUIElement) {
     let result = AXUIElementPerformAction(element, kAXPressAction as CFString)
     if result != .success {
@@ -92,33 +111,39 @@ guard arguments.count >= 3, let pid = pid_t(arguments[1]) else {
     fail(usage)
 }
 let app = AXUIElementCreateApplication(pid)
-// Doll Plus opens the config window when it becomes active.
-AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-let window = waitFor("the config window") {
+
+func configWindow() -> AXUIElement? {
     children(of: app).first { subrole($0) == "AXStandardWindow" }
 }
 
+// Each activation of Doll Plus rebuilds the content of the config window: the row selection and the detail pane go away.
+let window = configWindow() ?? {
+    AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    return waitFor("the config window", configWindow)
+}()
+
 switch (arguments[2], arguments.count > 3 ? arguments[3] : nil) {
 case ("rows", nil):
-    printJSON(rows(in: window).map { ["name": $0.name, "selected": attribute($0.element, kAXSelectedAttribute) as? Bool ?? false] })
+    printJSON(rows(in: window).map { ["name": $0.name, "selected": isSelected($0)] })
 case ("buttons", nil):
     printJSON(descendants(of: window).filter { role($0) == kAXButtonRole }.compactMap(label))
 case ("open", let name?):
     // A press while the window still loads can have no effect.
-    waitFor("the selected row \(name)") { () -> Bool? in
+    waitFor("the selected row \(name)") { () -> Bool in
         let target = row(named: name, in: window)
-        if attribute(target.element, kAXSelectedAttribute) as? Bool == true {
+        if isSelected(target) {
             return true
         }
         AXUIElementPerformAction(target.content, kAXPressAction as CFString)
-        Thread.sleep(forTimeInterval: 0.5)
-        return nil
+        return poll(timeout: 0.5) { isSelected(row(named: name, in: window)) }
     }
     printJSON(["ok": true])
 case ("toggle", let checkboxLabel?):
-    press(waitFor("the checkbox \(checkboxLabel)") {
-        descendants(of: window).first { role($0) == kAXCheckBoxRole && label($0) == checkboxLabel }
-    })
+    let checkbox = { descendants(of: window).first { role($0) == kAXCheckBoxRole && label($0) == checkboxLabel } }
+    let value = { checkbox().flatMap { attribute($0, kAXValueAttribute) as? Int } }
+    let before = waitFor("the checkbox \(checkboxLabel)", value)
+    press(waitFor("the checkbox \(checkboxLabel)", checkbox))
+    waitFor("a new value of the checkbox \(checkboxLabel)") { value().map { $0 != before } ?? false }
     printJSON(["ok": true])
 case ("remove", let name?):
     let target = row(named: name, in: window)
