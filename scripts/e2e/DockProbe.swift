@@ -14,8 +14,8 @@ func descendants(of element: AXUIElement) -> [AXUIElement] {
     return children + children.flatMap(descendants(of:))
 }
 
-func printJSON(_ object: [String: Any]) {
-    let data = try! JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+func printJSON(_ object: [String: Any], options: JSONSerialization.WritingOptions = [.prettyPrinted, .sortedKeys]) {
+    let data = try! JSONSerialization.data(withJSONObject: object, options: options)
     print(String(data: data, encoding: .utf8)!)
 }
 
@@ -43,6 +43,26 @@ if let pid = argument(after: "--press-status-item").flatMap(pid_t.init) {
     let result = AXUIElementPerformAction(item, kAXPressAction as CFString)
     printJSON(["trusted": true, "pressed": result == .success])
     exit(result == .success ? 0 : 5)
+}
+
+func appInfo(_ app: NSRunningApplication?) -> [String: Any] {
+    ["bundleId": app?.bundleIdentifier ?? NSNull(), "name": app?.localizedName ?? NSNull()]
+}
+
+if CommandLine.arguments.contains("--frontmost") {
+    printJSON(appInfo(NSWorkspace.shared.frontmostApplication).merging(["trusted": true]) { $1 })
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--watch-activations") {
+    setvbuf(stdout, nil, _IOLBF, 0)
+    let observer = NSWorkspace.shared.notificationCenter.addObserver(
+        forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+    ) { notification in
+        printJSON(appInfo(notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication), options: [.sortedKeys])
+    }
+    printJSON(["trusted": true, "watching": true], options: [.sortedKeys])
+    withExtendedLifetime(observer) { RunLoop.main.run() }
 }
 
 func onScreenWindowCount(pid: pid_t) -> Int {
