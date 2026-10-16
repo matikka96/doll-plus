@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """End-to-end scenarios for Doll Plus.
 
-    python3 -I scripts/e2e.py build             build Doll Plus, the fixtures, the Dock probe and the config driver
+    python3 -I scripts/e2e.py build             build Doll Plus, the fixtures, the Dock probe, the config driver and
+                                                the UI driver
     python3 -I scripts/e2e.py probe [--prompt]  print the Dock items as JSON
     python3 -I scripts/e2e.py run [NAME ...]    run all or the named scenarios
     python3 -I scripts/e2e.py run --quiet       skip the scenarios that take the window focus, and fail a
@@ -23,7 +24,7 @@ import signal
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,6 +39,7 @@ APP_BUNDLE_ID = "com.matikka96.DollPlus.e2e"
 APP_BINARY = APP / "Contents/MacOS/Doll Plus"
 PROBE = E2E / "dock-probe"
 CONFIG_DRIVER = E2E / "config-driver"
+UI_DRIVER = E2E / "ui-driver"
 STATE_FILE = E2E / "state.json"
 LOGS = E2E / "logs"
 SCREENSHOTS = E2E / "screenshots"
@@ -54,6 +56,19 @@ RENDER_SETTLE = 1.0
 SEEDED_POSITION = 120
 DEMO_BADGES = ("", "1", "12", "123", "new")
 DEMO_STEP = 3.0
+# NSWindow.Level.popUpMenu, the level of the arrow panel and the alert panel.
+PANEL_LAYER = 101
+ARROW_SIZE = (1000, 800)
+ALERT_DURATION = 3.0
+CLICK_CLOSE_TIMEOUT = 1.0
+ALERT_CLOSE_SLACK = 1.0
+ALERT_CENTER_TOLERANCE = 2
+HOVER_DURATION = 3.0
+FULL_SCREEN_SETTLE = 1.5
+TEXT_WINDOW_SIZE = (480, 160)
+ARROW_CLICK_BELOW_ITEM = 150
+# About 3 s at the key interval of the UI driver.
+KEYS_ACROSS_ALERT = "abcdefghijklmnopqrstuvwxyz" * 4
 
 
 @dataclass(frozen=True)
@@ -65,6 +80,7 @@ class Fixture:
     display_name: str | None = None
     localized_display_name: str | None = None
     dock_icon: bool = True
+    text_window: bool = False
 
     @property
     def app(self) -> Path:
@@ -73,6 +89,10 @@ class Fixture:
     @property
     def control_file(self) -> Path:
         return CONTROL_DIR / f"{self.bundle_id}.badge"
+
+    @property
+    def report_file(self) -> Path:
+        return CONTROL_DIR / f"{self.bundle_id}.report.json"
 
     @property
     def dock_title(self) -> str:
@@ -98,7 +118,10 @@ FIXTURES = {
     "c": Fixture("c", "com.matikka96.DollPlus.fixture.c", "DollFixtureC", "DollFixtureC",
                  localized_display_name="Doll Fixture Localized"),
     "d": Fixture("d", "com.matikka96.DollPlus.fixture.d", "DollFixtureD", "DollFixtureD", dock_icon=False),
+    # Takes the place of TextEdit: it keeps no document between runs.
+    "text": Fixture("text", "com.matikka96.DollPlus.fixture.text", "DollFixtureText", "DollFixtureText", text_window=True),
 }
+TEXT = FIXTURES["text"]
 SUITE_BUNDLE_IDS = {APP_BUNDLE_ID, *(f.bundle_id for f in FIXTURES.values())}
 
 
@@ -108,6 +131,49 @@ class CheckFailed(Exception):
 
 class EnvironmentProblem(Exception):
     pass
+
+
+class ScenarioSkipped(Exception):
+    pass
+
+
+# Quartz global coordinates: the origin is the top-left corner of the main display, and y grows down.
+@dataclass(frozen=True)
+class Rect:
+    x: float
+    y: float
+    width: float
+    height: float
+
+    @classmethod
+    def of(cls, bounds: dict) -> "Rect":
+        return cls(bounds["x"], bounds["y"], bounds["width"], bounds["height"])
+
+    @property
+    def max_x(self) -> float:
+        return self.x + self.width
+
+    @property
+    def max_y(self) -> float:
+        return self.y + self.height
+
+    @property
+    def center(self) -> tuple[float, float]:
+        return self.x + self.width / 2, self.y + self.height / 2
+
+    def contains(self, point) -> bool:
+        return self.x <= point[0] <= self.max_x and self.y <= point[1] <= self.max_y
+
+    def contains_rect(self, other: "Rect") -> bool:
+        return self.x <= other.x and other.max_x <= self.max_x and self.y <= other.y and other.max_y <= self.max_y
+
+
+@contextmanager
+def as_environment_problem(prefix: str = ""):
+    try:
+        yield
+    except CheckFailed as error:
+        raise EnvironmentProblem(f"{prefix}{error}")
 
 
 def run(cmd, **kwargs):
@@ -158,6 +224,8 @@ def build_fixture(fixture: Fixture):
     }
     if not fixture.dock_icon:
         info["LSUIElement"] = True
+    if fixture.text_window:
+        info["DollFixtureReportFile"] = str(fixture.report_file)
     if fixture.display_name:
         info["CFBundleDisplayName"] = fixture.display_name
     if fixture.localized_display_name:
@@ -179,6 +247,7 @@ def build_helpers():
     E2E.mkdir(parents=True, exist_ok=True)
     run(["swiftc", "-O", "-o", str(PROBE), str(ROOT / "scripts/e2e/DockProbe.swift")])
     run(["swiftc", "-O", "-o", str(CONFIG_DRIVER), str(ROOT / "scripts/e2e/ConfigDriver.swift")])
+    run(["swiftc", "-O", "-o", str(UI_DRIVER), str(ROOT / "scripts/e2e/UIDriver.swift")])
 
 
 def build_all(skip_app=False):
@@ -238,10 +307,8 @@ def deactivate_fixture(fixture: Fixture):
     # NSRunningApplication.hide() refuses an accessory app, so another fixture takes the activation.
     other = next(f for f in FIXTURES.values() if f != fixture and f.dock_icon)
     run(["open", str(other.app)])
-    try:
+    with as_environment_problem():
         wait_app_state(fixture, lambda s: not s["active"], "inactive")
-    except CheckFailed as error:
-        raise EnvironmentProblem(str(error))
 
 
 def fixture_pids(fixture: Fixture):
@@ -281,6 +348,102 @@ def activation_watch():
         activations.extend(json.loads(line) for line in watcher.communicate()[0].splitlines())
 
 
+def ui(*args):
+    result = subprocess.run([str(UI_DRIVER), *map(str, args)], capture_output=True, text=True)
+    try:
+        output = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise EnvironmentProblem(f"the UI driver printed no JSON: {result.stdout}{result.stderr}")
+    if result.returncode != 0:
+        raise EnvironmentProblem(f"UI driver: {output.get('error')}")
+    return output
+
+
+def windows_of(pid: int) -> list[dict]:
+    return [{**w, "bounds": Rect.of(w["bounds"])} for w in ui("windows") if w["pid"] == pid and w["alpha"] > 0]
+
+
+def screens() -> list[Rect]:
+    return [Rect.of(bounds) for bounds in ui("screens")]
+
+
+def screen_of(rect: Rect) -> Rect:
+    screen = next((s for s in screens() if s.contains(rect.center)), None)
+    if screen is None:
+        raise EnvironmentProblem(f"{rect} is on no screen {screens()}")
+    return screen
+
+
+def move_pointer(point):
+    ui("move", *point)
+
+
+def click(point):
+    ui("click", *point)
+
+
+def static_texts_at(point) -> list[str]:
+    return ui("texts-at", *point)
+
+
+def window_state(pid: int) -> dict:
+    return ui("window", pid)
+
+
+def place_text_window(center):
+    width, height = TEXT_WINDOW_SIZE
+    ui("place", fixture_pids(TEXT)[0], center[0] - width / 2, center[1] - height / 2, width, height)
+
+
+def text_report():
+    try:
+        return json.loads(TEXT.report_file.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def activate_text_fixture():
+    run(["open", str(TEXT.app)])
+    with as_environment_problem():
+        wait_app_state(TEXT, lambda s: s["active"], "active")
+
+
+def start_text_fixture():
+    TEXT.report_file.unlink(missing_ok=True)
+    launch_fixture(TEXT)
+    with as_environment_problem():
+        wait_until(text_report, what=f"{TEXT.dock_title} wrote no report")
+    activate_text_fixture()
+
+
+def leave_full_screen(fixture: Fixture, pid: int):
+    ui("fullscreen", pid, "off")
+    with as_environment_problem(f"{fixture.dock_title} did not leave full screen: "):
+        wait_until(lambda: not window_state(pid)["fullScreen"])
+    time.sleep(FULL_SCREEN_SETTLE)
+
+
+@contextmanager
+def full_screen(fixture: Fixture):
+    pid = fixture_pids(fixture)[0]
+    ui("fullscreen", pid, "on")
+    try:
+        with as_environment_problem(f"{fixture.dock_title} did not go full screen: "):
+            window = wait_until(lambda: (w := window_state(pid))["fullScreen"] and Rect.of(w["bounds"]) in screens() and w,
+                                describe=lambda: f"window: {window_state(pid)}")
+        time.sleep(FULL_SCREEN_SETTLE)
+        bounds = Rect.of(window["bounds"])
+        # Doll Plus checks the full screen on the screen with the pointer.
+        move_pointer(bounds.center)
+        yield bounds
+    except BaseException:
+        # A failure to leave full screen must not hide the failure of the scenario.
+        with suppress(CheckFailed, EnvironmentProblem):
+            leave_full_screen(fixture, pid)
+        raise
+    leave_full_screen(fixture, pid)
+
+
 def restart_dock():
     old_pid = probe().get("dockPid")
     run(["killall", "Dock"])
@@ -292,11 +455,13 @@ def restart_dock():
 
 
 class DollPlus:
-    def __init__(self, scenario: str, fixtures, red_badge: bool, hide_when_empty: bool = False, binary: Path = APP_BINARY):
+    def __init__(self, scenario: str, fixtures, red_badge: bool, hide_when_empty: bool = False, alerts: bool = False,
+                 binary: Path = APP_BINARY):
         self.scenario = scenario
         self.fixtures = fixtures
         self.red_badge = red_badge
         self.hide_when_empty = hide_when_empty
+        self.alerts = alerts
         self.binary = binary
         self.process = None
 
@@ -322,8 +487,9 @@ class DollPlus:
             "SETTINGS_Hide_When_App_Not_Running": plist_bool(False),
             "SETTINGS_Hide_When_Nothing_Coming": plist_bool(self.hide_when_empty),
             "SETTINGS_Grayout_Icon_When_Nothing_Coming": plist_bool(False),
-            "SETTINGS_SHOW_ALERT_IN_FULL_SCREEN_Mode": plist_bool(False),
-            "SETTINGS_Giant_Badge_Enabled_Apps": "<dict/>",
+            "SETTINGS_SHOW_ALERT_IN_FULL_SCREEN_Mode": plist_bool(self.alerts),
+            "SETTINGS_Giant_Badge_Enabled_Apps": "<dict>" + "".join(
+                f"<key>{f.bundle_id}</key><true/>" for f in (self.fixtures if self.alerts else ())) + "</dict>",
             "SETTINGS_APPS_ICON_MASK": "<dict/>",
             "ApplePersistenceIgnoreState": "YES",
             "DollPlusStateFile": str(STATE_FILE),
@@ -394,6 +560,40 @@ class DollPlus:
         return self.wait_app(fixture, lambda a: a["badge"] == text,
                              f"Doll Plus did not show the badge {text!r}", timeout)
 
+    def status_item(self, fixture: Fixture) -> Rect:
+        x, y, width, height = self.app(fixture)["frame"]
+        return Rect(x, self.state()["mainScreenHeight"] - (y + height), width, height)
+
+    def windows(self) -> list[dict]:
+        return windows_of(self.process.pid)
+
+    def panels(self, is_arrow: bool) -> list[Rect]:
+        return [w["bounds"] for w in self.windows()
+                if w["layer"] == PANEL_LAYER and ((w["bounds"].width, w["bounds"].height) == ARROW_SIZE) == is_arrow]
+
+    def arrow(self) -> Rect | None:
+        return next(iter(self.panels(is_arrow=True)), None)
+
+    def alert(self) -> Rect | None:
+        return next(iter(self.panels(is_arrow=False)), None)
+
+    # A tooltip is a window of its own. The window list of macOS 26 has no status item windows.
+    def windows_besides_panels(self) -> list[dict]:
+        return [w for w in self.windows() if w["layer"] != PANEL_LAYER]
+
+    def describe_alert(self) -> str:
+        panel = self.alert()
+        return f"alert: {panel} with the texts {static_texts_at(panel.center)}" if panel else "no alert shows"
+
+    def wait_alert(self, text: str) -> Rect:
+        def shown():
+            panel = self.alert()
+            return panel if panel and static_texts_at(panel.center) == [text] else None
+        return wait_until(shown, describe=self.describe_alert, what=f"the alert with {text!r} did not show")
+
+    def wait_no_alert(self, timeout: float, what: str):
+        wait_until(lambda: self.alert() is None, timeout=timeout, describe=self.describe_alert, what=what)
+
     def click_status_item(self):
         if not probe("--press-status-item", str(self.state()["pid"])).get("pressed"):
             raise CheckFailed("the Accessibility press on the status item failed")
@@ -430,15 +630,17 @@ class Scenario:
     red_badge: bool = False
     hide_when_empty: bool = False
     steals_focus: bool = False
+    alerts: bool = False
 
 
 SCENARIOS: list[Scenario] = []
 
 
-def scenario(summary, fixtures=("a",), known_issue=None, red_badge=False, hide_when_empty=False, steals_focus=False):
+def scenario(summary, fixtures=("a",), known_issue=None, red_badge=False, hide_when_empty=False, steals_focus=False,
+             alerts=False):
     def register(body):
         SCENARIOS.append(Scenario(body.__name__.replace("_", "-"), summary, tuple(FIXTURES[k] for k in fixtures), body,
-                                  known_issue, red_badge, hide_when_empty, steals_focus))
+                                  known_issue, red_badge, hide_when_empty, steals_focus, alerts))
         return body
     return register
 
@@ -644,22 +846,26 @@ def delete_status_item_keys(fixture: Fixture):
         subprocess.run(["defaults", "delete", APP_BUNDLE_ID, key], capture_output=True)
 
 
-def show_status_item_x(doll, fixture: Fixture) -> float:
-    set_badge(fixture, "1")
-    wait_dock_label(fixture, "1")
-    doll.wait_app(fixture, lambda a: a["visible"] and a["badge"] == "1", "the status item did not show")
+def settled_status_item(doll, fixture: Fixture) -> Rect:
     previous = None
 
     def settled():
         nonlocal previous
-        x = doll.app(fixture)["frame"][0]
-        settled_x = x if x == previous else None
-        previous = x
-        return settled_x
+        item = doll.status_item(fixture)
+        settled_item = item if item == previous else None
+        previous = item
+        return settled_item
 
     # The menu bar moves a status item with an animation after a show.
     time.sleep(RENDER_SETTLE)
     return wait_until(settled, describe=lambda: f"the status item frame changes: {doll.app(fixture)}")
+
+
+def show_status_item_x(doll, fixture: Fixture) -> float:
+    set_badge(fixture, "1")
+    wait_dock_label(fixture, "1")
+    doll.wait_app(fixture, lambda a: a["visible"] and a["badge"] == "1", "the status item did not show")
+    return settled_status_item(doll, fixture).x
 
 
 def hide_status_item(doll, fixture: Fixture):
@@ -690,6 +896,175 @@ def hide_keeps_position(doll, a, screenshots):
         delete_status_item_keys(a)
 
 
+def assert_no_tooltip(doll, when: str):
+    if windows := doll.windows_besides_panels():
+        raise CheckFailed(f"a tooltip or another window of Doll Plus shows {when}: {windows}")
+
+
+@scenario("No tooltip shows on the status item, and none stays after the giant arrow shows", alerts=True,
+          steals_focus=True)
+def no_tooltip(doll, a, screenshots):
+    start_text_fixture()
+    item = doll.status_item(a)
+    # Doll Plus places the arrow on the screen with the pointer (#49).
+    away = screen_of(item).center
+    move_pointer(item.center)
+    time.sleep(HOVER_DURATION)
+    assert_no_tooltip(doll, "while the pointer stays on the status item")
+    move_pointer(away)
+    set_badge(a, "3")
+    doll.wait_badge(a, "3")
+    wait_until(doll.arrow, what="the giant arrow did not show")
+    move_pointer(doll.status_item(a).center)
+    time.sleep(HOVER_DURATION)
+    assert_no_tooltip(doll, "while the pointer stays on the status item under the giant arrow")
+    move_pointer(away)
+    time.sleep(RENDER_SETTLE)
+    assert_no_tooltip(doll, "after the pointer leaves the status item")
+
+
+@scenario("While the arrow shows, the status item takes a click, and the window below the arrow takes a click",
+          alerts=True, steals_focus=True)
+def arrow_click_through(doll, a, screenshots):
+    start_text_fixture()
+    # Doll Plus places the arrow on the screen with the pointer (#49).
+    move_pointer(screen_of(settled_status_item(doll, a)).center)
+    set_badge(a, "3")
+    doll.wait_badge(a, "3")
+    arrow = wait_until(doll.arrow, what="the giant arrow did not show")
+    item = settled_status_item(doll, a)
+    covered_top = max(item.y, arrow.y)
+    if covered_top >= item.max_y:
+        raise EnvironmentProblem(f"the arrow {arrow} does not cover the status item {item}")
+    click((item.center[0], (covered_top + item.max_y) / 2))
+    wait_app_state(a, lambda s: s["active"], "active after a click on the status item under the arrow")
+
+    activate_text_fixture()
+    set_badge(a, "")
+    doll.wait_badge(a, "")
+    wait_until(lambda: doll.arrow() is None, what="the giant arrow did not hide after the badge cleared")
+    item = settled_status_item(doll, a)
+    target = (item.center[0], item.max_y + ARROW_CLICK_BELOW_ITEM)
+    place_text_window(target)
+    set_badge(a, "4")
+    doll.wait_badge(a, "4")
+    arrow = wait_until(doll.arrow, what="the giant arrow did not show")
+    if not arrow.contains(target):
+        raise EnvironmentProblem(f"the arrow {arrow} does not cover the click point {target}")
+    clicks = text_report()["clicks"]
+    click(target)
+    wait_until(lambda: text_report()["clicks"] > clicks, describe=lambda: f"report: {text_report()}",
+               what=f"the click on the arrow did not reach the {TEXT.dock_title} window below it")
+
+
+def assert_alert_below_item(doll, fixture: Fixture, panel: Rect):
+    item = doll.status_item(fixture)
+    screen = next((s for s in screens() if s.contains(panel.center)), None)
+    if screen is None:
+        raise CheckFailed(f"the alert {panel} is on no screen")
+    # Doll Plus keeps the alert on the screen when a full-screen space hides the menu bar.
+    top = max(item.max_y, screen.y)
+    clamped = panel.x <= screen.x or panel.max_x >= screen.max_x
+    centered = abs(panel.center[0] - item.center[0]) <= ALERT_CENTER_TOLERANCE
+    if abs(panel.y - top) > 1 or not (centered or (clamped and panel.x <= item.center[0] <= panel.max_x)):
+        raise CheckFailed(f"the alert {panel} is not below the status item {item}")
+
+
+def assert_alert_keeps_focus(doll, a, badge: str) -> Rect:
+    with activation_watch() as activations:
+        typist = subprocess.Popen([str(UI_DRIVER), "type", KEYS_ACROSS_ALERT], stdout=subprocess.DEVNULL)
+        try:
+            set_badge(a, badge)
+            panel = doll.wait_alert(badge)
+            typed_across_alert = typist.poll() is None
+        finally:
+            typist.wait()
+    if not typed_across_alert:
+        raise EnvironmentProblem("the typed keys ended before the alert showed, so the focus check is not complete")
+    wait_until(lambda: text_report()["text"] == KEYS_ACROSS_ALERT, describe=lambda: f"report: {text_report()}",
+               what=f"the {TEXT.dock_title} text field did not get all of the typed keys")
+    if activations:
+        raise CheckFailed(f"the alert changed the active app: {activations}")
+    if (frontmost := frontmost_app())["bundleId"] != TEXT.bundle_id:
+        raise CheckFailed(f"the frontmost app is {frontmost['name']}, not {TEXT.dock_title}")
+    return panel
+
+
+@scenario("In full screen, the alert shows the badge below the status item, and the typed keys stay in the active app",
+          alerts=True, steals_focus=True)
+def alert_keeps_focus(doll, a, screenshots):
+    # The status item gets its text width before the alert, so the alert position does not depend on #45.
+    set_badge(a, "4")
+    doll.wait_badge(a, "4")
+    start_text_fixture()
+    settled_status_item(doll, a)
+    with full_screen(TEXT):
+        panel = assert_alert_keeps_focus(doll, a, "5")
+        assert_alert_below_item(doll, a, panel)
+
+
+@scenario("A click on the alert closes it and activates the monitored app", alerts=True, steals_focus=True)
+def alert_click(doll, a, screenshots):
+    start_text_fixture()
+    with full_screen(TEXT):
+        set_badge(a, "6")
+        panel = doll.wait_alert("6")
+        click(panel.center)
+        doll.wait_no_alert(CLICK_CLOSE_TIMEOUT, "the alert did not close after a click")
+        wait_app_state(a, lambda s: s["active"], "active after a click on the alert")
+
+
+@scenario("A second badge change updates the alert, and the alert closes 3 s after the last change", alerts=True,
+          steals_focus=True)
+def alert_update(doll, a, screenshots):
+    start_text_fixture()
+    with full_screen(TEXT):
+        set_badge(a, "7")
+        doll.wait_alert("7")
+        time.sleep(ALERT_DURATION / 2)
+        if doll.alert() is None:
+            raise EnvironmentProblem("the alert of the first badge closed before the second badge change")
+        set_badge(a, "8")
+        doll.wait_alert("8")
+        updated = time.monotonic()
+        time.sleep(ALERT_DURATION * 2 / 3)
+        if doll.alert() is None:
+            raise CheckFailed(f"the alert closed less than {ALERT_DURATION:.0f} s after the last badge change")
+        doll.wait_no_alert(updated + ALERT_DURATION + ALERT_CLOSE_SLACK - time.monotonic(),
+                           f"the alert did not close {ALERT_DURATION:.0f} s after the last badge change")
+
+
+@scenario("With two screens, the alert shows fully on one screen", alerts=True, steals_focus=True)
+def alert_two_screens(doll, a, screenshots):
+    all_screens = screens()
+    second = next((s for s in all_screens if (s.x, s.y) != (0, 0)), None)
+    if second is None:
+        raise ScenarioSkipped("the Mac has one screen")
+    start_text_fixture()
+    place_text_window(second.center)
+    with full_screen(TEXT) as window:
+        if window != second:
+            raise EnvironmentProblem(f"{TEXT.dock_title} went full screen on {window}, not on the second screen {second}")
+        panel = assert_alert_keeps_focus(doll, a, "9")
+    if not any(s.contains_rect(panel) for s in all_screens):
+        raise CheckFailed(f"the alert {panel} is not fully on one of the screens {all_screens}")
+
+
+@scenario("With hide when nothing is coming, the status item comes back and the alert shows below it",
+          hide_when_empty=True, alerts=True, steals_focus=True, known_issue=45)
+def alert_hidden_item(doll, a, screenshots):
+    doll.wait_app(a, lambda app: not app["visible"], "the status item did not hide")
+    start_text_fixture()
+    with full_screen(TEXT):
+        set_badge(a, "3")
+        doll.wait_alert("3")
+        doll.wait_app(a, lambda app: app["visible"], "the status item did not come back")
+        settled_status_item(doll, a)
+        if (panel := doll.alert()) is None:
+            raise EnvironmentProblem("the alert closed before the status item stopped its move")
+        assert_alert_below_item(doll, a, panel)
+
+
 def reset_fixtures(fixtures):
     for fixture in FIXTURES.values():
         if fixture_pids(fixture):
@@ -703,9 +1078,11 @@ def reset_fixtures(fixtures):
 def scenario_outcome(s: Scenario, screenshots: bool) -> tuple[str, str]:
     try:
         reset_fixtures(s.fixtures)
-        with DollPlus(s.name, s.fixtures, s.red_badge, s.hide_when_empty) as doll:
+        with DollPlus(s.name, s.fixtures, s.red_badge, s.hide_when_empty, s.alerts) as doll:
             s.body(doll, *s.fixtures, screenshots)
         return ("XPASS" if s.known_issue else "PASS"), ""
+    except ScenarioSkipped as reason:
+        return "SKIP", str(reason)
     except CheckFailed as error:
         return ("XFAIL" if s.known_issue else "FAIL"), str(error)
     except EnvironmentProblem as error:
@@ -785,7 +1162,7 @@ def command_demo(binary: Path, red_badge: bool, hide_when_empty: bool, cycles: i
         try:
             require_trusted()
             reset_fixtures((a,))
-            with DollPlus("demo", (a,), red_badge, hide_when_empty, binary):
+            with DollPlus("demo", (a,), red_badge, hide_when_empty, binary=binary):
                 print(f"Doll Plus shows {a.dock_title}. The badge changes every {DEMO_STEP:.0f} s. Press Ctrl-C to stop.", flush=True)
                 for _ in range(cycles):
                     for badge in DEMO_BADGES:
