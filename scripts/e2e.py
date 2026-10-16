@@ -197,7 +197,10 @@ def wait_app_state(fixture: Fixture, condition, what: str):
 
 
 def deactivate_fixture(fixture: Fixture):
-    # macOS refuses to hide an accessory app, so another fixture takes the activation.
+    # A late activation of the other fixture can undo the next click.
+    if not app_state(fixture)["active"]:
+        return
+    # NSRunningApplication.hide() refuses an accessory app, so another fixture takes the activation.
     other = next(f for f in FIXTURES.values() if f != fixture and f.dock_icon)
     run(["open", str(other.app)])
     try:
@@ -434,12 +437,14 @@ def click_toggle(doll, a, screenshots):
     wait_app_state(a, lambda s: s["hidden"], "hidden")
 
 
-# macOS refuses to hide an accessory app, so only the show half applies.
-@scenario("A click shows an app with no Dock icon", fixtures=("d",))
-def click_show_no_dock_icon(doll, d, screenshots):
+@scenario("A click shows an app with no Dock icon, a second click hides it", fixtures=("d",))
+def click_toggle_no_dock_icon(doll, d, screenshots):
     deactivate_fixture(d)
     doll.click_status_item()
     wait_app_state(d, lambda s: s["active"], "active")
+    doll.click_status_item()
+    # isHidden stays false for an accessory app, so the window shows the hide.
+    wait_app_state(d, lambda s: not s["active"] and s["on_screen_windows"] == 0, "inactive and hidden")
 
 
 def assert_no_redraw(doll, fixture, badge):

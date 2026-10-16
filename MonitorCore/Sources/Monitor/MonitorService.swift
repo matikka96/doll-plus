@@ -57,7 +57,10 @@ public struct MonitorService {
     public static func toggleMonitoredApp(bundleId: String) {
         let instances = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
         if let activeInstance = instances.first(where: \.isActive) {
-            activeInstance.hide()
+            // hide() refuses an accessory app.
+            if !activeInstance.hide() {
+                hideThroughAccessibility(activeInstance)
+            }
         } else {
             showMonitoredApp(bundleId: bundleId)
         }
@@ -73,6 +76,14 @@ public struct MonitorService {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
         NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+    }
+
+    private static func hideThroughAccessibility(_ app: NSRunningApplication) {
+        let result = AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier),
+                                                  kAXHiddenAttribute as CFString, kCFBooleanTrue)
+        if result != .success {
+            print("Could not hide \(app.bundleIdentifier ?? "\(app.processIdentifier)"): AXError \(result.rawValue)")
+        }
     }
 
     public static func isMonitoredAppRunning(bundleIdentifier: String) -> Bool {
