@@ -1,0 +1,4 @@
+// A stable signing identity keeps the Accessibility permission after each rebuild.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = Apple Development

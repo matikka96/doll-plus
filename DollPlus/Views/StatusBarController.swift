@@ -8,7 +8,8 @@ let defaultIcon = #imageLiteral(resourceName: "DefaultStatusBarIcon")
 class StatusBarController {
     private var statusBar: NSStatusBar!
     private var isDark = false
-    private var latestBadgeText = ""
+    private(set) var latestBadgeText = ""
+    private(set) var redrawCount = 0
     private var latestMessageCount = 0
 
     private var giantBadgeController = GiantBadgeViewController()
@@ -231,6 +232,7 @@ class StatusBarController {
     }
 
     func updateBadgeIcon(icon: NSImage?, size: CGSize? = nil) {
+        redrawCount += 1
         statusItem.button?.image = icon
         if let iconSize = size ?? icon?.size {
             statusItem.button?.image?.size = iconSize

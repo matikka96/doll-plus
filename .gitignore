@@ -92,3 +92,6 @@ iOSInjectionProject/
 .idea
 
 .DS_Store
+
+# Doll Plus
+Config/Local.xcconfig

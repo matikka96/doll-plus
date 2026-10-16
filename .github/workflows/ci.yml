@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the app
+        run: >
+          xcodebuild -project DollPlus.xcodeproj -scheme DollPlus -configuration Debug
+          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath build/DerivedData
+          CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build MonitorCore
+        run: swift build --package-path MonitorCore
+
+      - name: Build the end-to-end fixtures and the Dock probe
+        run: python3 -I scripts/e2e.py build --skip-app

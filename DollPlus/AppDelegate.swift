@@ -6,6 +6,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Storage.setup()
         MonitorEngine.shared.setup()
         HotkeyManager.setup()
+        DebugStateWriter.setup()
 
        if AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary) {
            print("Trusted by client")
