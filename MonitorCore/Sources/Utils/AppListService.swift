@@ -6,6 +6,12 @@ public struct AppInfo {
     public var fullPath: String
     public var localizedName: String
     public var icon: NSImage?
+
+    public static func displayName(ofAppAt url: URL) -> String {
+        let name = (try? url.resourceValues(forKeys: [.localizedNameKey]))?.localizedName ?? url.lastPathComponent
+        let appExtension = ".app"
+        return name.hasSuffix(appExtension) ? String(name.dropLast(appExtension.count)) : name
+    }
 }
 
 public class AppListService {
@@ -40,13 +46,12 @@ public class AppListService {
 
             let bundleIdentifier = item.value(forAttribute: kMDItemCFBundleIdentifier as String) as? String
             let fullPath = item.value(forAttribute: kMDItemPath as String) as? String
-            let displayName = item.value(forAttribute: kMDItemDisplayName as String) as? String
             let icon = NSWorkspace.shared.icon(forFile: fullPath ?? "")
 
-            if let id = bundleIdentifier, let path = fullPath, let name = displayName {
+            if let id = bundleIdentifier, let path = fullPath {
                 appListDict[id] = AppInfo(bundleId: id,
                         fullPath: path,
-                        localizedName: name.replacingOccurrences(of: ".app", with: ""),
+                        localizedName: AppInfo.displayName(ofAppAt: URL(fileURLWithPath: path)),
                         icon: icon)
             }
         }

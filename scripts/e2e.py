@@ -44,6 +44,7 @@ class Fixture:
     bundle_name: str
     folder_name: str
     display_name: str | None = None
+    localized_display_name: str | None = None
 
     @property
     def app(self) -> Path:
@@ -55,13 +56,15 @@ class Fixture:
 
     @property
     def dock_title(self) -> str:
-        return self.display_name or self.bundle_name
+        return self.localized_display_name or self.display_name or self.bundle_name
 
 
 FIXTURES = {
     "a": Fixture("a", "com.matikka96.DollPlus.fixture.a", "DollFixtureA", "DollFixtureA"),
     # Copies Outlook: the Dock shows the display name, CFBundleName differs.
     "b": Fixture("b", "com.matikka96.DollPlus.fixture.b", "DollFixtureB", "Doll Fixture Display", "Doll Fixture Display"),
+    "c": Fixture("c", "com.matikka96.DollPlus.fixture.c", "DollFixtureC", "DollFixtureC",
+                 localized_display_name="Doll Fixture Localized"),
 }
 
 
@@ -84,7 +87,8 @@ def wait_until(condition, timeout=TIMEOUT, describe=lambda: ""):
         if result:
             return result
         if time.monotonic() > deadline:
-            raise CheckFailed(f"timed out after {timeout:.0f} s. {describe()}".strip())
+            detail = describe()
+            raise CheckFailed(f"timed out after {timeout:.0f} s" + (f". {detail}" if detail else ""))
         time.sleep(POLL)
 
 
@@ -111,6 +115,13 @@ def build_fixture(fixture: Fixture):
     }
     if fixture.display_name:
         info["CFBundleDisplayName"] = fixture.display_name
+    if fixture.localized_display_name:
+        # The development region applies when no preferred language has an .lproj.
+        info["CFBundleDevelopmentRegion"] = "en"
+        info["LSHasLocalizedDisplayName"] = True
+        strings = contents / "Resources" / "en.lproj" / "InfoPlist.strings"
+        strings.parent.mkdir(parents=True, exist_ok=True)
+        strings.write_text(f'CFBundleDisplayName = "{fixture.localized_display_name}";\n')
     with open(contents / "Info.plist", "wb") as f:
         plistlib.dump(info, f)
     run(["swiftc", "-O", "-o", str(contents / "MacOS" / fixture.bundle_name),
@@ -217,6 +228,7 @@ class DollPlus:
             "SETTINGS_Grayout_Icon_When_Nothing_Coming": plist_bool(False),
             "SETTINGS_SHOW_ALERT_IN_FULL_SCREEN_Mode": plist_bool(False),
             "SETTINGS_Giant_Badge_Enabled_Apps": "<dict/>",
+            "SETTINGS_APPS_ICON_MASK": "<dict/>",
             "ApplePersistenceIgnoreState": "YES",
             "DollPlusStateFile": str(STATE_FILE),
         }
@@ -333,11 +345,22 @@ def two_digit_fit(doll, a, screenshots):
         raise CheckFailed(f"the text needs {app['fittingWidth']} pt, the item has {app['length']} pt")
 
 
-@scenario("An app whose Dock title differs from CFBundleName", fixtures=("b",), known_issue=4)
+def assert_dock_title_match(doll, fixture, badge):
+    set_badge(fixture, badge)
+    wait_dock_label(fixture, badge)
+    app = doll.wait_badge(fixture, badge)
+    if app["appName"] != fixture.dock_title:
+        raise CheckFailed(f"Doll Plus shows the name {app['appName']!r}, the Dock shows {fixture.dock_title!r}")
+
+
+@scenario("An app whose Dock title differs from CFBundleName", fixtures=("b",))
 def display_name(doll, b, screenshots):
-    set_badge(b, "4")
-    wait_dock_label(b, "4")
-    doll.wait_badge(b, "4")
+    assert_dock_title_match(doll, b, "4")
+
+
+@scenario("An app whose Dock title is a localized display name", fixtures=("c",))
+def localized_name(doll, c, screenshots):
+    assert_dock_title_match(doll, c, "6")
 
 
 @scenario("Badges keep working after the Dock restarts", known_issue=5)

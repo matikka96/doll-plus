@@ -14,15 +14,12 @@ public struct MonitorService {
         reloadAppElements()
     }
     private static let onElementDestroyCallback = ObserverCallbackInfo {
-        observedAppInfos.keys.forEach { appName in
-            if let appElement = observedAppInfos[appName]?.appElement {
-                var title: AnyObject?
-                AXUIElementCopyAttributeValue(appElement, kAXTitleAttribute as CFString, &title)
-
-                // If we can't get the title from cachedTargetAppElement, then the app is terminated.
-                if title as? String == nil {
-                    observedAppInfos[appName]?.onBadgeUpdate(nil)
-                    observedAppInfos[appName]?.updateAppElement(nil)
+        observedAppInfos.keys.forEach { bundleId in
+            if let appElement = observedAppInfos[bundleId]?.appElement {
+                // The Dock element of an app that quit has no title.
+                if attribute(kAXTitleAttribute, of: appElement) as? String == nil {
+                    observedAppInfos[bundleId]?.onBadgeUpdate(nil)
+                    observedAppInfos[bundleId]?.updateAppElement(nil)
                 }
             }
         }
@@ -34,24 +31,25 @@ public struct MonitorService {
                 setupAxObserversOnDock()
             }
 
-            observedAppInfos.keys.forEach { appName in
-                observedAppInfos[appName]?.onBadgeUpdate(getBadgeText(appName: appName))
+            observedAppInfos.keys.forEach { bundleId in
+                observedAppInfos[bundleId]?.onBadgeUpdate(getBadgeText(bundleId: bundleId))
             }
         }
         timer?.fire()
     }
 
-    public static func observe(appName: String, onUpdate: @escaping (String?) -> Void) {
-        observedAppInfos[appName] = ObservedAppInfo(appElement: tryGetTargetAppElement(appName: appName), onBadgeUpdate: onUpdate)
+    public static func observe(bundleId: String, appName: String, onUpdate: @escaping (String?) -> Void) {
+        let appElement = DockItemMatcher.element(in: dockItems(), bundleId: bundleId, appName: appName)
+        observedAppInfos[bundleId] = ObservedAppInfo(appName: appName, appElement: appElement, onBadgeUpdate: onUpdate)
     }
 
-    public static func unObserve(appName: String) {
-        print("Un observe \(appName)")
-        observedAppInfos.removeValue(forKey: appName)
+    public static func unObserve(bundleId: String) {
+        print("Un observe \(bundleId)")
+        observedAppInfos.removeValue(forKey: bundleId)
     }
 
-    public static func openMonitoredApp(appName: String) {
-        if let cachedTargetAppElement = observedAppInfos[appName]?.appElement {
+    public static func openMonitoredApp(bundleId: String) {
+        if let cachedTargetAppElement = observedAppInfos[bundleId]?.appElement {
             AXUIElementPerformAction(cachedTargetAppElement, kAXPressAction as CFString)
         }
     }
@@ -60,43 +58,37 @@ public struct MonitorService {
         !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty
     }
 
-    public static func hasDockElement(appName: String) -> Bool {
-        observedAppInfos[appName]?.appElement != nil
+    public static func hasDockElement(bundleId: String) -> Bool {
+        observedAppInfos[bundleId]?.appElement != nil
     }
 
-    public static func getBadgeText(appName: String) -> String? {
-        guard let targetAppElement = observedAppInfos[appName]?.appElement else {
+    public static func getBadgeText(bundleId: String) -> String? {
+        guard let targetAppElement = observedAppInfos[bundleId]?.appElement else {
             return nil
         }
 
-        var statusLabel: AnyObject?
-        AXUIElementCopyAttributeValue(targetAppElement, "AXStatusLabel" as CFString, &statusLabel)
-
-        return statusLabel as? String
+        return attribute("AXStatusLabel", of: targetAppElement) as? String
     }
 
-    private static func tryGetTargetAppElement(appName: String) -> AXUIElement? {
-        guard let dockProcessId = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").last?.processIdentifier else {
-            return nil
+    private static func dockItems() -> [DockItem<AXUIElement>] {
+        guard let dockProcessId = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").last?.processIdentifier,
+              let dockChildren = getSubElements(root: AXUIElementCreateApplication(dockProcessId)) else {
+            return []
         }
 
-        let dock = AXUIElementCreateApplication(dockProcessId)
-        guard let dockChildren = getSubElements(root: dock) else {
-            return nil
+        let appItems = dockChildren.filter { attribute(kAXSubroleAttribute, of: $0) as? String == "AXApplicationDockItem" }
+        return appItems.map { child in
+            let url = attribute(kAXURLAttribute, of: child) as? URL
+            return DockItem(element: child,
+                            title: attribute(kAXTitleAttribute, of: child) as? String,
+                            bundleId: url.flatMap { Bundle(url: $0)?.bundleIdentifier })
         }
+    }
 
-        // Get badge text by lookup dock elements
-        for child in dockChildren {
-            var title: AnyObject?
-
-            AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &title)
-            if let titleStr = title as? String,
-               titleStr == appName {
-                return child
-            }
-        }
-
-        return nil
+    private static func attribute(_ name: String, of element: AXUIElement) -> AnyObject? {
+        var value: AnyObject?
+        AXUIElementCopyAttributeValue(element, name as CFString, &value)
+        return value
     }
 
     private static func getSubElements(root: AXUIElement) -> [AXUIElement]? {
@@ -175,14 +167,23 @@ public struct MonitorService {
     }
 
     private static func reloadAppElements() {
-        observedAppInfos.keys.forEach { appName in
-            let info = observedAppInfos[appName]
-            observedAppInfos[appName]?.updateAppElement(info?.appElement ?? tryGetTargetAppElement(appName: appName))
+        let missingBundleIds = observedAppInfos.filter { $0.value.appElement == nil }.keys
+        guard !missingBundleIds.isEmpty else {
+            return
+        }
+
+        let items = dockItems()
+        missingBundleIds.forEach { bundleId in
+            guard let appName = observedAppInfos[bundleId]?.appName else {
+                return
+            }
+            observedAppInfos[bundleId]?.updateAppElement(DockItemMatcher.element(in: items, bundleId: bundleId, appName: appName))
         }
     }
 }
 
 private struct ObservedAppInfo {
+    let appName: String
     var appElement: AXUIElement?
     let onBadgeUpdate: (String?) -> Void
 

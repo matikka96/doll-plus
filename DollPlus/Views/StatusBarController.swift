@@ -52,7 +52,7 @@ class StatusBarController {
     func refreshIcon() {
         monitoredAppIcon = Storage.appIcon(for: monitoredApp?.bundleId ?? "")
 
-        if(AppSettings.isIconMask(for: monitoredApp?.appName ?? "") && isDark) {
+        if(AppSettings.isIconMask(for: monitoredApp?.bundleId ?? "") && isDark) {
             monitoredAppIcon = monitoredAppIcon?.invert()
         }
 
@@ -65,25 +65,19 @@ class StatusBarController {
         let noAppSelected = statusItem.button?.image == defaultIcon
         let isOptionKeyHolding = NSEvent.modifierFlags.contains(.option)
         let isRightClick = NSApp.currentEvent?.isRightClick == true
+        let monitoredAppURL = monitoredApp.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleId) }
 
-        if noAppSelected || isOptionKeyHolding || isRightClick {
+        if noAppSelected || monitoredAppURL == nil || isOptionKeyHolding || isRightClick {
             MonitorEngine.shared.showConfigWindow()
-        } else if let monitoredAppName = monitoredApp?.appName,
-                  let monitoredAppBundleId = monitoredApp?.bundleId {
+        } else if let monitoredAppBundleId = monitoredApp?.bundleId, let monitoredAppURL {
             let appRunning = MonitorService.isMonitoredAppRunning(bundleIdentifier: monitoredAppBundleId)
             if !appRunning {
-                guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: monitoredAppBundleId) else {
-                    return
-                }
-
-                NSWorkspace.shared.open(appURL)
+                NSWorkspace.shared.open(monitoredAppURL)
             } else {
                 if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == monitoredAppBundleId {
-                    // Hide the app
                     NSWorkspace.shared.frontmostApplication?.hide()
                 } else {
-                    // Send the app window to front most
-                    MonitorService.openMonitoredApp(appName: monitoredAppName)
+                    MonitorService.openMonitoredApp(bundleId: monitoredAppBundleId)
                 }
             }
         }
@@ -91,26 +85,14 @@ class StatusBarController {
 
     func monitorApp(app: MonitoredApp) {
         monitoredApp = app
-
-        guard let appFullPath = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleId)?.absoluteURL.path else {
-            return
-        }
-
-        guard let targetBundle = Bundle(path: appFullPath) else {
-            return
-        }
-
-        let appName = app.appName
         statusItem.autosaveName = "DollPlus_\(app.bundleId)"
+        statusItem.button?.toolTip = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleId) == nil
+            ? String(format: NSLocalizedString("%@ is not installed. Click to choose another app", comment: ""), app.appName)
+            : NSLocalizedString("Hold option key ⌥ and click to config", comment: "")
         updateBadgeText(nil)
 
-        guard let monitoredAppIcon = monitoredAppIcon else {
-            return
-        }
-        updateBadgeIcon(icon: monitoredAppIcon, size: CGSize(width: defaultIconSize, height: defaultIconSize))
-
-        MonitorService.observe(appName: appName) { [weak self] badge in
-            let appRunning = MonitorService.isMonitoredAppRunning(bundleIdentifier: targetBundle.bundleIdentifier ?? "")
+        MonitorService.observe(bundleId: app.bundleId, appName: app.appName) { [weak self] badge in
+            let appRunning = MonitorService.isMonitoredAppRunning(bundleIdentifier: app.bundleId)
             let appIsNotRunningAndIconShouldBeHidden = AppSettings.hideWhenAppNotRunning && !appRunning
             let badgeIsEmptyAndIconShouldBeHidden = AppSettings.hideWhenNothingComing && (badge.isNil || badge?.isEmpty == true)
 
@@ -199,8 +181,7 @@ class StatusBarController {
             }
 
             let frontmostAppIsMonitoredApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == monitoredApp?.bundleId
-            if !frontmostAppIsMonitoredApp, AppSettings.isGiantBadgeEnabled(for: monitoredApp?.appName ?? "") {
-                // Don't show giant badge when message count is decreasing
+            if !frontmostAppIsMonitoredApp, AppSettings.isGiantBadgeEnabled(for: monitoredApp?.bundleId ?? "") {
                 if newMessageCount >= latestMessageCount {
                     tryShowGiantBadge(text)
                 } else {
@@ -294,10 +275,10 @@ class StatusBarController {
 
     func destroy() {
         if let monitoredApp = monitoredApp {
-            MonitorService.unObserve(appName: monitoredApp.appName)
+            MonitorService.unObserve(bundleId: monitoredApp.bundleId)
             MonitorEngine.shared.unMonitor(app: monitoredApp)
             statusBar.removeStatusItem(statusItem)
-            AppSettings.toggleGiantBadge(for: monitoredApp.appName, value: false)
+            AppSettings.toggleGiantBadge(for: monitoredApp.bundleId, value: false)
         }
     }
 
@@ -313,8 +294,8 @@ class StatusBarController {
 
         let targetApp = monitoredApp
         let view = NotificationView(icon: monitoredAppIcon ?? defaultIcon, badgeText: newText) {
-            if let monitoredAppName = targetApp?.appName {
-                MonitorService.openMonitoredApp(appName: monitoredAppName)
+            if let bundleId = targetApp?.bundleId {
+                MonitorService.openMonitoredApp(bundleId: bundleId)
             }
         }
         notificationPopover.contentViewController = NSHostingController(rootView: view)

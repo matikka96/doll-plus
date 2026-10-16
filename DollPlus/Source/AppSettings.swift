@@ -1,3 +1,4 @@
+import Utils
 
 class AppSettings {
     @UserDefaultSetting("SETTINGS_Hide_When_App_Not_Running")
@@ -21,23 +22,34 @@ class AppSettings {
     @UserDefaultSetting("SETTINGS_Giant_Badge_Enabled_Apps")
     static var giantBadgeConfigs: [String: Bool] = [:]
 
-    static func toggleGiantBadge(for appName: String, value: Bool) {
-        AppSettings.giantBadgeConfigs[appName] = value
+    static func toggleGiantBadge(for bundleId: String, value: Bool) {
+        AppSettings.giantBadgeConfigs[bundleId] = value
     }
 
-    static func isGiantBadgeEnabled(for appName: String) -> Bool {
-        AppSettings.giantBadgeConfigs[appName] ?? false
+    static func isGiantBadgeEnabled(for bundleId: String) -> Bool {
+        AppSettings.giantBadgeConfigs[bundleId] ?? false
     }
 
     @UserDefaultSetting("SETTINGS_APPS_ICON_MASK")
     static var iconMasksConfigs: [String: Bool] = [:]
 
-    static func toggleIconMask(for appName: String, value: Bool) {
-        AppSettings.iconMasksConfigs[appName] = value
+    static func toggleIconMask(for bundleId: String, value: Bool) {
+        AppSettings.iconMasksConfigs[bundleId] = value
     }
 
-    static func isIconMask(for appName: String) -> Bool {
-        AppSettings.iconMasksConfigs[appName] ?? false
+    static func isIconMask(for bundleId: String) -> Bool {
+        AppSettings.iconMasksConfigs[bundleId] ?? false
     }
 
+    static func migrateNameKeys(_ appNames: [String], to bundleId: String) {
+        migrate(&giantBadgeConfigs, from: appNames, to: bundleId)
+        migrate(&iconMasksConfigs, from: appNames, to: bundleId)
+    }
+
+    private static func migrate(_ configs: inout [String: Bool], from appNames: [String], to bundleId: String) {
+        let migrated = SettingsMigration.copyingFirstValue(configs, from: appNames, to: bundleId)
+        if migrated != configs {
+            configs = migrated
+        }
+    }
 }

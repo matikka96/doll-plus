@@ -45,7 +45,7 @@ private extension StatusBarController {
             "bundleId": app.bundleId,
             "appName": app.appName,
             "badge": latestBadgeText,
-            "dockElementFound": MonitorService.hasDockElement(appName: app.appName),
+            "dockElementFound": MonitorService.hasDockElement(bundleId: app.bundleId),
             "visible": statusItem.isVisible,
             "title": button?.title ?? "",
             "length": statusItem.length,

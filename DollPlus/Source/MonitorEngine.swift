@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Monitor
+import Utils
 
 let defaultWindowSize = NSSize(width: 900, height: 600)
 let SETTING_MONITORED_APP_IDS = "SETTING_MONITORED_APP_IDS"
@@ -22,13 +23,14 @@ class MonitorEngine {
         if let data = UserDefaults.standard.value(forKey: SETTING_MONITORED_APP_IDS) as? String {
             let monitoredAppIds = data.split(separator: ",").map(String.init)
             let monitoredApps: [MonitoredApp] = monitoredAppIds.map { bundleId in
-                var appName = bundleId
-                if let appFullPath = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)?.absoluteURL.path,
-                   let targetBundle = Bundle(path: appFullPath),
-                   let name = targetBundle.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String {
-                    appName = name
+                guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
+                    return MonitoredApp(bundleId, appName: bundleId)
                 }
 
+                let appName = AppInfo.displayName(ofAppAt: appURL)
+                if let bundle = Bundle(url: appURL) {
+                    AppSettings.migrateNameKeys(legacyAppNames(of: bundle, displayName: appName), to: bundleId)
+                }
                 return MonitoredApp(bundleId, appName: appName)
             }
 
@@ -101,6 +103,13 @@ class MonitorEngine {
                 .joined(separator: ",")
         UserDefaults.standard.set(data, forKey: SETTING_MONITORED_APP_IDS)
         UserDefaults.standard.synchronize()
+    }
+
+    private func legacyAppNames(of bundle: Bundle, displayName: String) -> [String] {
+        let relaunchName = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
+        let pickName = (bundle.infoDictionary?["CFBundleDisplayName"] ?? bundle.infoDictionary?["CFBundleName"]) as? String
+        let searchName = displayName.replacingOccurrences(of: ".app", with: "")
+        return [relaunchName, pickName, searchName, displayName].compactMap { $0 }
     }
 
     private func createNewStatusBar() -> StatusBarController {
