@@ -168,11 +168,12 @@ class StatusBarController {
 
         if newText.isEmpty {
             hideGiantBadge()
+            hideNotificationPanel()
         }
 
         let newMessageCount = Int(newText) ?? 0
         if latestBadgeText != newText {
-            if AppSettings.showAlertInFullScreenMode {
+            if AppSettings.showAlertInFullScreenMode, !newText.isEmpty {
                 tryShowNotificationPanel(newText: newText)
             }
 
