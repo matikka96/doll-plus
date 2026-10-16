@@ -128,6 +128,7 @@ class StatusBarController {
             return
         }
         position?.backUp()
+        hideNotificationPanel()
         statusItem.isVisible = false
     }
 
@@ -248,7 +249,6 @@ class StatusBarController {
               let screen = iconWindow.screen ?? NSScreen.screenWithMouse else {
             return
         }
-        let iconFrame = iconWindow.frame
 
         let targetApp = monitoredApp
         let view = NotificationView(icon: monitoredAppIcon ?? defaultIcon, badgeText: newText) { [weak self] in
@@ -259,11 +259,9 @@ class StatusBarController {
         }
         let hostingView = FirstMouseHostingView(rootView: view)
         let size = hostingView.fittingSize
-        let x = min(max(iconFrame.midX - size.width / 2, screen.frame.minX), screen.frame.maxX - size.width)
-        let y = min(iconFrame.minY, screen.frame.maxY) - size.height
         let panel = notificationPanel ?? makeNotificationPanel()
         notificationPanel = panel
-        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: false)
+        panel.setFrame(notificationFrame(size: size, below: iconWindow.frame, on: screen), display: false)
         hostingView.frame = NSRect(origin: .zero, size: size)
         hostingView.autoresizingMask = [.width, .height]
         panel.contentView?.subviews = [hostingView]
@@ -275,6 +273,12 @@ class StatusBarController {
         }
         notificationHideWork = hideWork
         DispatchQueue.main.asyncAfter(deadline: .now() + notificationDuration, execute: hideWork)
+    }
+
+    private func notificationFrame(size: NSSize, below iconFrame: NSRect, on screen: NSScreen) -> NSRect {
+        let x = min(max(iconFrame.midX - size.width / 2, screen.frame.minX), screen.frame.maxX - size.width)
+        let y = min(iconFrame.minY, screen.frame.maxY) - size.height
+        return NSRect(x: x, y: y, width: size.width, height: size.height)
     }
 
     private func hideNotificationPanel() {
@@ -314,7 +318,7 @@ class StatusBarController {
     }
 }
 
-// Keeps keyboard focus on the full-screen app.
+// On macOS 27 a status item NSPopover takes keyboard focus from the active app (upstream Doll 67).
 private final class NonKeyPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
