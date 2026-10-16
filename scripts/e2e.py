@@ -53,6 +53,7 @@ class Fixture:
     folder_name: str
     display_name: str | None = None
     localized_display_name: str | None = None
+    dock_icon: bool = True
 
     @property
     def app(self) -> Path:
@@ -73,6 +74,7 @@ FIXTURES = {
     "b": Fixture("b", "com.matikka96.DollPlus.fixture.b", "DollFixtureB", "Doll Fixture Display", "Doll Fixture Display"),
     "c": Fixture("c", "com.matikka96.DollPlus.fixture.c", "DollFixtureC", "DollFixtureC",
                  localized_display_name="Doll Fixture Localized"),
+    "d": Fixture("d", "com.matikka96.DollPlus.fixture.d", "DollFixtureD", "DollFixtureD", dock_icon=False),
 }
 
 
@@ -120,6 +122,8 @@ def build_fixture(fixture: Fixture):
         "NSPrincipalClass": "NSApplication",
         "DollFixtureControlFile": str(fixture.control_file),
     }
+    if not fixture.dock_icon:
+        info["LSUIElement"] = True
     if fixture.display_name:
         info["CFBundleDisplayName"] = fixture.display_name
     if fixture.localized_display_name:
@@ -151,9 +155,8 @@ def build_all(skip_app=False):
 
 
 
-def probe(prompt=False):
-    args = [str(PROBE)] + (["--prompt"] if prompt else [])
-    result = subprocess.run(args, capture_output=True, text=True)
+def probe(*args):
+    result = subprocess.run([str(PROBE), *args], capture_output=True, text=True)
     return json.loads(result.stdout)
 
 
@@ -182,6 +185,27 @@ def wait_dock_label(fixture: Fixture, text: str):
         raise EnvironmentProblem(f"the Dock did not show the badge {text!r} for {fixture.dock_title}: {error}")
 
 
+def app_state(fixture: Fixture):
+    return probe("--app-state", fixture.bundle_id)
+
+
+def wait_app_state(fixture: Fixture, condition, what: str):
+    try:
+        wait_until(lambda: condition(app_state(fixture)), describe=lambda: f"Last state: {app_state(fixture)}")
+    except CheckFailed as error:
+        raise CheckFailed(f"{fixture.dock_title} did not become {what}: {error}")
+
+
+def deactivate_fixture(fixture: Fixture):
+    # macOS refuses to hide an accessory app, so another fixture takes the activation.
+    other = next(f for f in FIXTURES.values() if f != fixture and f.dock_icon)
+    run(["open", str(other.app)])
+    try:
+        wait_app_state(fixture, lambda s: not s["active"], "inactive")
+    except CheckFailed as error:
+        raise EnvironmentProblem(str(error))
+
+
 def fixture_pids(fixture: Fixture):
     result = subprocess.run(["pgrep", "-x", fixture.bundle_name], capture_output=True, text=True)
     return [int(pid) for pid in result.stdout.split()]
@@ -190,9 +214,10 @@ def fixture_pids(fixture: Fixture):
 def launch_fixture(fixture: Fixture):
     run(["open", str(fixture.app)])
     try:
-        wait_until(lambda: dock_item(fixture))
+        wait_until(lambda: dock_item(fixture) if fixture.dock_icon else fixture_pids(fixture))
     except CheckFailed:
-        raise EnvironmentProblem(f"{fixture.dock_title} did not appear in the Dock")
+        raise EnvironmentProblem(f"{fixture.dock_title} did not appear in the Dock" if fixture.dock_icon
+                                 else f"{fixture.dock_title} did not start")
 
 
 def quit_fixture(fixture: Fixture):
@@ -275,6 +300,10 @@ class DollPlus:
     def wait_badge(self, fixture: Fixture, text: str, timeout=TIMEOUT):
         return self.wait_app(fixture, lambda a: a["badge"] == text,
                              f"Doll Plus did not show the badge {text!r}", timeout)
+
+    def click_status_item(self):
+        if not probe("--press-status-item", str(self.state()["pid"])).get("pressed"):
+            raise CheckFailed("the Accessibility press on the status item failed")
 
     def screenshot(self, fixture: Fixture, label: str):
         state = self.state()
@@ -394,6 +423,23 @@ def app_relaunch(doll, a, screenshots):
     launch_fixture(a)
     wait_dock_label(a, "8")
     doll.wait_badge(a, "8")
+
+
+@scenario("A click shows the app, a second click hides it")
+def click_toggle(doll, a, screenshots):
+    deactivate_fixture(a)
+    doll.click_status_item()
+    wait_app_state(a, lambda s: s["active"] and not s["hidden"], "active")
+    doll.click_status_item()
+    wait_app_state(a, lambda s: s["hidden"], "hidden")
+
+
+# macOS refuses to hide an accessory app, so only the show half applies.
+@scenario("A click shows an app with no Dock icon", fixtures=("d",))
+def click_show_no_dock_icon(doll, d, screenshots):
+    deactivate_fixture(d)
+    doll.click_status_item()
+    wait_app_state(d, lambda s: s["active"], "active")
 
 
 def assert_no_redraw(doll, fixture, badge):
@@ -535,7 +581,7 @@ def main():
     elif args.command == "probe":
         if not PROBE.exists():
             build_probe()
-        print(json.dumps(probe(args.prompt), indent=2))
+        print(json.dumps(probe("--prompt") if args.prompt else probe(), indent=2))
     elif args.command == "list":
         for s in SCENARIOS:
             issue = f"  [known issue #{s.known_issue}]" if s.known_issue else ""

@@ -69,17 +69,8 @@ class StatusBarController {
 
         if noAppSelected || monitoredAppURL == nil || isOptionKeyHolding || isRightClick {
             MonitorEngine.shared.showConfigWindow()
-        } else if let monitoredAppBundleId = monitoredApp?.bundleId, let monitoredAppURL {
-            let appRunning = MonitorService.isMonitoredAppRunning(bundleIdentifier: monitoredAppBundleId)
-            if !appRunning {
-                NSWorkspace.shared.open(monitoredAppURL)
-            } else {
-                if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == monitoredAppBundleId {
-                    NSWorkspace.shared.frontmostApplication?.hide()
-                } else {
-                    MonitorService.openMonitoredApp(bundleId: monitoredAppBundleId)
-                }
-            }
+        } else if let monitoredAppBundleId = monitoredApp?.bundleId {
+            MonitorService.toggleMonitoredApp(bundleId: monitoredAppBundleId)
         }
     }
 
@@ -295,7 +286,7 @@ class StatusBarController {
         let targetApp = monitoredApp
         let view = NotificationView(icon: monitoredAppIcon ?? defaultIcon, badgeText: newText) {
             if let bundleId = targetApp?.bundleId {
-                MonitorService.openMonitoredApp(bundleId: bundleId)
+                MonitorService.showMonitoredApp(bundleId: bundleId)
             }
         }
         notificationPopover.contentViewController = NSHostingController(rootView: view)
