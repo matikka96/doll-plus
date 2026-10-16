@@ -1,10 +1,6 @@
 import AppKit
 import ApplicationServices
 
-// Usage: config-driver PID rows | open NAME | toggle LABEL | remove NAME | dump
-// Brings Doll Plus to the front, which opens the config window, and drives the window
-// through the Accessibility API. Prints JSON. Exits 1 when an element is missing.
-
 func attribute(_ element: AXUIElement, _ name: String) -> AnyObject? {
     var value: AnyObject?
     AXUIElementCopyAttributeValue(element, name as CFString, &value)
@@ -30,18 +26,12 @@ func role(_ element: AXUIElement) -> String? {
     attribute(element, kAXRoleAttribute) as? String
 }
 
-func label(_ element: AXUIElement) -> String? {
-    attribute(element, kAXDescriptionAttribute) as? String ?? attribute(element, kAXTitleAttribute) as? String
+func subrole(_ element: AXUIElement) -> String? {
+    attribute(element, kAXSubroleAttribute) as? String
 }
 
-func dump(_ element: AXUIElement) -> [String: Any] {
-    [
-        "role": role(element) ?? NSNull(),
-        "subrole": attribute(element, kAXSubroleAttribute) as? String ?? NSNull(),
-        "label": label(element) ?? NSNull(),
-        "actions": actions(of: element),
-        "children": children(of: element).map(dump),
-    ]
+func label(_ element: AXUIElement) -> String? {
+    attribute(element, kAXDescriptionAttribute) as? String ?? attribute(element, kAXTitleAttribute) as? String
 }
 
 func printJSON(_ object: Any) {
@@ -75,7 +65,7 @@ struct Row {
 
 func rows(in window: AXUIElement) -> [Row] {
     descendants(of: window)
-        .filter { attribute($0, kAXSubroleAttribute) as? String == "AXOutlineRow" }
+        .filter { subrole($0) == "AXOutlineRow" }
         .compactMap { row in
             guard let content = descendants(of: row).first(where: { label($0) != nil }), let name = label(content) else {
                 return nil
@@ -95,43 +85,45 @@ func press(_ element: AXUIElement) {
     }
 }
 
+let usage = "usage: config-driver PID rows | buttons | open NAME | toggle LABEL | remove NAME"
 let arguments = CommandLine.arguments
 guard arguments.count >= 3, let pid = pid_t(arguments[1]) else {
-    fail("usage: config-driver PID rows | open NAME | toggle LABEL | remove NAME | dump")
+    fail(usage)
 }
 let app = AXUIElementCreateApplication(pid)
+// Doll Plus opens the config window when it becomes active.
 AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
 let window = waitFor("the config window") {
-    children(of: app).first { attribute($0, kAXSubroleAttribute) as? String == "AXStandardWindow" }
+    children(of: app).first { subrole($0) == "AXStandardWindow" }
 }
 
 switch (arguments[2], arguments.count > 3 ? arguments[3] : nil) {
 case ("rows", nil):
     printJSON(rows(in: window).map { ["name": $0.name, "selected": attribute($0.element, kAXSelectedAttribute) as? Bool ?? false] })
+case ("buttons", nil):
+    printJSON(descendants(of: window).filter { role($0) == kAXButtonRole }.compactMap(label))
 case ("open", let name?):
     press(row(named: name, in: window).content)
     printJSON(["ok": true])
-case ("toggle", let checkbox?):
-    press(waitFor("the checkbox \(checkbox)") {
-        descendants(of: window).first { role($0) == kAXCheckBoxRole && label($0) == checkbox }
+case ("toggle", let checkboxLabel?):
+    press(waitFor("the checkbox \(checkboxLabel)") {
+        descendants(of: window).first { role($0) == kAXCheckBoxRole && label($0) == checkboxLabel }
     })
     printJSON(["ok": true])
 case ("remove", let name?):
     let target = row(named: name, in: window)
-    guard let owner = ([target.content, target.element] + descendants(of: target.element))
+    guard let menuOwner = ([target.content, target.element] + descendants(of: target.element))
         .first(where: { actions(of: $0).contains(kAXShowMenuAction) }) else {
         fail("the row \(name) has no context menu")
     }
     // The menu runs a tracking loop, so Doll Plus answers the action only after the menu closes.
-    AXUIElementSetMessagingTimeout(owner, 0.5)
-    AXUIElementPerformAction(owner, kAXShowMenuAction as CFString)
+    AXUIElementSetMessagingTimeout(menuOwner, 0.5)
+    AXUIElementPerformAction(menuOwner, kAXShowMenuAction as CFString)
     let item = waitFor("the Remove menu item") {
         descendants(of: app).first { role($0) == kAXMenuItemRole && label($0) == "Remove" }
     }
     press(item)
     printJSON(["ok": true])
-case ("dump", nil):
-    printJSON(dump(window))
 default:
-    fail("unknown command \(arguments.dropFirst(2).joined(separator: " "))")
+    fail(usage)
 }

@@ -21,7 +21,8 @@ class MonitorEngine {
         MonitorService.setupObservers()
         
         if let data = UserDefaults.standard.value(forKey: SETTING_MONITORED_APP_IDS) as? String {
-            let monitoredAppIds = data.split(separator: ",").map(String.init)
+            var seenAppIds = Set<String>()
+            let monitoredAppIds = data.split(separator: ",").map(String.init).filter { seenAppIds.insert($0).inserted }
             let monitoredApps: [MonitoredApp] = monitoredAppIds.map { bundleId in
                 guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
                     return MonitoredApp(bundleId, appName: bundleId)
@@ -50,9 +51,13 @@ class MonitorEngine {
         }
     }
 
-    func monitor(newApp: MonitoredApp, at: Int?, statusBar: StatusBarController? = nil) {
+    func statusBar(for app: MonitoredApp) -> StatusBarController? {
+        statusBars.first { $0.monitoredApp == app }
+    }
+
+    func monitor(newApp: MonitoredApp, statusBar: StatusBarController? = nil) {
         if let statusBar = statusBar,
-            let oldAppIndex = at {
+            let oldAppIndex = monitoredApps.firstIndex(where: { $0 == statusBar.monitoredApp }) {
             statusBar.monitorApp(app: newApp)
             monitoredApps[oldAppIndex] = newApp
         } else {
