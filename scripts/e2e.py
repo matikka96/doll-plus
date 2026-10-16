@@ -562,9 +562,21 @@ def no_redraw_red_badge(doll, a, screenshots):
     assert_no_redraw(doll, a, "3")
 
 
+def selected_rows(doll):
+    return [r["name"] for r in doll.config_rows() if r["selected"]]
+
+
 def assert_selected_rows(doll, names):
-    wait_until(lambda: [r["name"] for r in doll.config_rows() if r["selected"]] == names,
+    wait_until(lambda: selected_rows(doll) == names,
                describe=lambda: f"rows: {doll.config_rows()}", what=f"the selected rows are not {names}")
+
+
+def assert_selection_holds(doll, names):
+    deadline = time.monotonic() + RENDER_SETTLE
+    while time.monotonic() < deadline:
+        if (rows := selected_rows(doll)) != names:
+            raise CheckFailed(f"the selected rows changed from {names} to {rows}")
+        time.sleep(POLL)
 
 
 @scenario("A config row stays selected after a setting changes", fixtures=("a", "b"), steals_focus=True)
@@ -572,8 +584,7 @@ def row_keeps_selection(doll, a, b, screenshots):
     doll.open_row(a.dock_title)
     assert_selected_rows(doll, [a.dock_title])
     doll.toggle_setting("Hide icon if monitored app isn't running")
-    time.sleep(RENDER_SETTLE)
-    assert_selected_rows(doll, [a.dock_title])
+    assert_selection_holds(doll, [a.dock_title])
 
 
 @scenario("The Remove item of a config row stops monitoring the app", fixtures=("a", "b"), steals_focus=True)
