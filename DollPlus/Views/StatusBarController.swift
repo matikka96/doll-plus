@@ -6,6 +6,7 @@ import Utils
 let defaultIconSize: CGFloat = 20
 let defaultIconFrameSize = NSSize(width: defaultIconSize, height: defaultIconSize)
 let defaultIcon = #imageLiteral(resourceName: "DefaultStatusBarIcon")
+private let notificationDuration: TimeInterval = 3
 
 class StatusBarController {
     private var statusBar: NSStatusBar!
@@ -21,6 +22,8 @@ class StatusBarController {
                               styleMask: [.nonactivatingPanel],
                               backing: .buffered, defer: false)
     private var lastTimeShowingGiantBadge = Date()
+    private var notificationPanel: NSPanel?
+    private var notificationHideWork: DispatchWorkItem?
 
     public var statusItem: NSStatusItem!
     public var monitoredApp: MonitoredApp? {
@@ -54,6 +57,8 @@ class StatusBarController {
         giantBadgePanel.isOpaque = false
         giantBadgePanel.hasShadow = false
         giantBadgePanel.backgroundColor = NSColor.clear
+        // The giant badge panel covers the status item, so the tooltip misses the mouse-exit event.
+        giantBadgePanel.ignoresMouseEvents = true
     }
 
     func refreshIcon() {
@@ -68,6 +73,7 @@ class StatusBarController {
 
     @objc func onIconClicked(sender: AnyObject) {
         hideGiantBadge()
+        hideNotificationPanel()
 
         let noAppSelected = statusItem.button?.image == defaultIcon
         let isOptionKeyHolding = NSEvent.modifierFlags.contains(.option)
@@ -93,7 +99,7 @@ class StatusBarController {
         monitoredApp = app
         statusItem.button?.toolTip = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleId) == nil
             ? String(format: NSLocalizedString("%@ is not installed. Click to choose another app", comment: ""), app.appName)
-            : NSLocalizedString("Hold option key ⌥ and click to config", comment: "")
+            : nil
         updateBadgeText(nil)
 
         MonitorService.observe(bundleId: app.bundleId, appName: app.appName) { [weak self] badge in
@@ -119,26 +125,12 @@ class StatusBarController {
         }
     }
 
-    func showPopover(popover: NSPopover? = nil) {
-        if let statusBarButton = statusItem.button {
-            popover?.show(relativeTo: statusBarButton.bounds, of: statusBarButton, preferredEdge: .maxY)
-            if let contentWindow = popover?.contentViewController?.view.window {
-                // A little hack to prevent popover shitup with menubar
-                // https://stackoverflow.com/a/35047661
-                contentWindow.parent?.removeChildWindow(contentWindow)
-            }
-        }
-    }
-
-    func hidePopover(popover: NSPopover? = nil) {
-        popover?.performClose(nil)
-    }
-
     func hideStatusBar() {
         guard statusItem.isVisible else {
             return
         }
         position?.backUp()
+        hideNotificationPanel()
         statusItem.isVisible = false
     }
 
@@ -184,7 +176,7 @@ class StatusBarController {
         let newMessageCount = Int(newText) ?? 0
         if latestBadgeText != newText {
             if AppSettings.showAlertInFullScreenMode {
-                tryShowTheNewNotificationPopover(newText: newText)
+                tryShowNotificationPanel(newText: newText)
             }
 
             let frontmostAppIsMonitoredApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == monitoredApp?.bundleId
@@ -223,10 +215,7 @@ class StatusBarController {
             if giantBadgePanel.contentViewController != nil {
                 giantBadgeController.animationFlag.toggle()
             } else {
-                let giantBadgeView = GiantBadgeView(controller: giantBadgeController) { [weak self] in
-                    guard let self = self else { return }
-                    self.onIconClicked(sender: self)
-                }
+                let giantBadgeView = GiantBadgeView(controller: giantBadgeController)
                 giantBadgePanel.contentViewController = NSHostingController(rootView: giantBadgeView)
                 giantBadgePanel.setContentSize(giantBadgeSize)
             }
@@ -257,18 +246,51 @@ class StatusBarController {
         giantBadgePanel.setIsVisible(false)
     }
 
-    func tryShowTheNewNotificationPopover(newText: String) {
-        if Utils.currentActiveWindowIsFullScreen {
+    private func tryShowNotificationPanel(newText: String) {
+        guard Utils.currentActiveWindowIsFullScreen,
+              let iconWindow = statusItem.button?.window,
+              let screen = iconWindow.screen ?? NSScreen.screenWithMouse else {
+            return
+        }
 
-            let notificationPopover = createNotificationPopover(newText: newText)
-            showPopover(popover: notificationPopover)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                self?.hidePopover(popover: notificationPopover)
+        let targetApp = monitoredApp
+        let view = NotificationView(icon: monitoredAppIcon ?? defaultIcon, badgeText: newText) { [weak self] in
+            self?.hideNotificationPanel()
+            if let bundleId = targetApp?.bundleId {
+                MonitorService.showMonitoredApp(bundleId: bundleId)
             }
         }
+        let hostingView = FirstMouseHostingView(rootView: view)
+        let size = hostingView.fittingSize
+        let panel = notificationPanel ?? makeNotificationPanel()
+        notificationPanel = panel
+        panel.setFrame(notificationFrame(size: size, below: iconWindow.frame, on: screen), display: false)
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        hostingView.autoresizingMask = [.width, .height]
+        panel.contentView?.subviews = [hostingView]
+        panel.orderFrontRegardless()
+
+        notificationHideWork?.cancel()
+        let hideWork = DispatchWorkItem { [weak self] in
+            self?.hideNotificationPanel()
+        }
+        notificationHideWork = hideWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + notificationDuration, execute: hideWork)
+    }
+
+    private func notificationFrame(size: NSSize, below iconFrame: NSRect, on screen: NSScreen) -> NSRect {
+        let x = min(max(iconFrame.midX - size.width / 2, screen.frame.minX), screen.frame.maxX - size.width)
+        let y = min(iconFrame.minY, screen.frame.maxY) - size.height
+        return NSRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    private func hideNotificationPanel() {
+        notificationHideWork?.cancel()
+        notificationPanel?.orderOut(nil)
     }
 
     func destroy() {
+        hideNotificationPanel()
         if let monitoredApp = monitoredApp {
             MonitorService.unObserve(bundleId: monitoredApp.bundleId)
             MonitorEngine.shared.unMonitor(app: monitoredApp)
@@ -278,26 +300,36 @@ class StatusBarController {
         }
     }
 
-    private func createNotificationPopover(newText: String) -> NSPopover {
-        let notificationPopover = NSPopover()
-        let textWidth = newText
-                .width(withConstrainedHeight: defaultIconSize, font: .systemFont(ofSize: 14))
-        let horizonPadding: CGFloat = 32
-        let verticalPadding: CGFloat = 16
-        notificationPopover.contentSize = NSSize(width: defaultIconSize + textWidth + horizonPadding, height: defaultIconSize + verticalPadding)
-        notificationPopover.behavior = .transient
-        notificationPopover.setValue(true, forKeyPath: "shouldHideAnchor")
+    private func makeNotificationPanel() -> NSPanel {
+        let panel = NonKeyPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                                backing: .buffered, defer: true)
+        panel.level = .popUpMenu
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
 
-        let targetApp = monitoredApp
-        let view = NotificationView(icon: monitoredAppIcon ?? defaultIcon, badgeText: newText) {
-            if let bundleId = targetApp?.bundleId {
-                MonitorService.showMonitoredApp(bundleId: bundleId)
-            }
-        }
-        notificationPopover.contentViewController = NSHostingController(rootView: view)
-
-        return notificationPopover
+        let background = NSVisualEffectView()
+        background.material = .popover
+        background.state = .active
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 8
+        background.layer?.masksToBounds = true
+        panel.contentView = background
+        return panel
     }
+}
+
+// On macOS 27 a status item NSPopover takes keyboard focus from the active app (upstream Doll 67).
+private final class NonKeyPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+// In a window that is not key, AppKit gives the first click to the view only with acceptsFirstMouse.
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 private struct StatusItemPosition {
@@ -332,15 +364,6 @@ private struct DrawnState: Equatable {
     let showOnlyAppIcon: Bool
     let showAsRedBadge: Bool
     let grayOutWhenEmpty: Bool
-}
-
-extension String {
-    func width(withConstrainedHeight height: CGFloat, font: NSFont) -> CGFloat {
-        let constraintRect = CGSize(width: .greatestFiniteMagnitude, height: height)
-        let boundingBox = self.boundingRect(with: constraintRect, options: .usesLineFragmentOrigin, attributes: [NSAttributedString.Key.font: font], context: nil)
-
-        return ceil(boundingBox.width)
-    }
 }
 
 extension NSScreen {

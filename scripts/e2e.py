@@ -4,6 +4,8 @@
     python3 -I scripts/e2e.py build             build Doll Plus, the fixtures, the Dock probe and the config driver
     python3 -I scripts/e2e.py probe [--prompt]  print the Dock items as JSON
     python3 -I scripts/e2e.py run [NAME ...]    run all or the named scenarios
+    python3 -I scripts/e2e.py run --quiet       skip the scenarios that take the window focus, and fail a
+                                                scenario that activates Doll Plus or a fixture
     python3 -I scripts/e2e.py list              list the scenarios
     python3 -I scripts/e2e.py demo [--app PATH] cycle a fixture badge for a manual check
 
@@ -97,6 +99,7 @@ FIXTURES = {
                  localized_display_name="Doll Fixture Localized"),
     "d": Fixture("d", "com.matikka96.DollPlus.fixture.d", "DollFixtureD", "DollFixtureD", dock_icon=False),
 }
+SUITE_BUNDLE_IDS = {APP_BUNDLE_ID, *(f.bundle_id for f in FIXTURES.values())}
 
 
 class CheckFailed(Exception):
@@ -247,7 +250,7 @@ def fixture_pids(fixture: Fixture):
 
 
 def launch_fixture(fixture: Fixture):
-    run(["open", str(fixture.app)])
+    run(["open", "-g", str(fixture.app)])
     try:
         wait_until(lambda: dock_item(fixture) if fixture.dock_icon else fixture_pids(fixture))
     except CheckFailed:
@@ -259,6 +262,23 @@ def quit_fixture(fixture: Fixture):
     for pid in fixture_pids(fixture):
         os.kill(pid, signal.SIGTERM)
     wait_until(lambda: not fixture_pids(fixture) and dock_item(fixture) is None)
+
+
+def frontmost_app():
+    return probe("--frontmost")
+
+
+@contextmanager
+def activation_watch():
+    watcher = subprocess.Popen([str(PROBE), "--watch-activations"], stdout=subprocess.PIPE, text=True)
+    # The first line comes after the watcher subscribes to the activations.
+    watcher.stdout.readline()
+    activations = []
+    try:
+        yield activations
+    finally:
+        watcher.terminate()
+        activations.extend(json.loads(line) for line in watcher.communicate()[0].splitlines())
 
 
 def restart_dock():
@@ -409,15 +429,16 @@ class Scenario:
     known_issue: int | None = None
     red_badge: bool = False
     hide_when_empty: bool = False
+    steals_focus: bool = False
 
 
 SCENARIOS: list[Scenario] = []
 
 
-def scenario(summary, fixtures=("a",), known_issue=None, red_badge=False, hide_when_empty=False):
+def scenario(summary, fixtures=("a",), known_issue=None, red_badge=False, hide_when_empty=False, steals_focus=False):
     def register(body):
-        SCENARIOS.append(Scenario(body.__name__.replace("_", "-"), summary,
-                                  tuple(FIXTURES[k] for k in fixtures), body, known_issue, red_badge, hide_when_empty))
+        SCENARIOS.append(Scenario(body.__name__.replace("_", "-"), summary, tuple(FIXTURES[k] for k in fixtures), body,
+                                  known_issue, red_badge, hide_when_empty, steals_focus))
         return body
     return register
 
@@ -491,7 +512,7 @@ def localized_name(doll, c, screenshots):
     assert_dock_title_match(doll, c, "6")
 
 
-@scenario("Badges keep working after the Dock restarts")
+@scenario("Badges keep working after the Dock restarts", steals_focus=True)
 def dock_restart(doll, a, screenshots):
     set_badge(a, "1")
     wait_dock_label(a, "1")
@@ -516,7 +537,7 @@ def app_relaunch(doll, a, screenshots):
     doll.wait_badge(a, "8")
 
 
-@scenario("A click shows the app, a second click hides it")
+@scenario("A click shows the app, a second click hides it", steals_focus=True)
 def click_toggle(doll, a, screenshots):
     deactivate_fixture(a)
     doll.click_status_item()
@@ -525,7 +546,7 @@ def click_toggle(doll, a, screenshots):
     wait_app_state(a, lambda s: s["hidden"], "hidden")
 
 
-@scenario("A click shows an app with no Dock icon, a second click hides it", fixtures=("d",))
+@scenario("A click shows an app with no Dock icon, a second click hides it", fixtures=("d",), steals_focus=True)
 def click_toggle_no_dock_icon(doll, d, screenshots):
     deactivate_fixture(d)
     doll.click_status_item()
@@ -562,7 +583,7 @@ def assert_selected_rows(doll, names):
                describe=lambda: f"rows: {doll.config_rows()}", what=f"the selected rows are not {names}")
 
 
-@scenario("A config row stays selected after a setting changes", fixtures=("a", "b"))
+@scenario("A config row stays selected after a setting changes", fixtures=("a", "b"), steals_focus=True)
 def row_keeps_selection(doll, a, b, screenshots):
     doll.open_row(a.dock_title)
     assert_selected_rows(doll, [a.dock_title])
@@ -571,7 +592,7 @@ def row_keeps_selection(doll, a, b, screenshots):
     assert_selected_rows(doll, [a.dock_title])
 
 
-@scenario("The Remove item of a config row stops monitoring the app", fixtures=("a", "b"))
+@scenario("The Remove item of a config row stops monitoring the app", fixtures=("a", "b"), steals_focus=True)
 def remove_from_list(doll, a, b, screenshots):
     doll.remove_row(b.dock_title)
     wait_until(lambda: [app["bundleId"] for app in doll.state().get("apps", [])] == [a.bundle_id],
@@ -585,7 +606,7 @@ def detail_pane_open(doll, fixture):
     return f'Stop monitoring - "{fixture.dock_title}"' in doll.config_buttons()
 
 
-@scenario("Removing the open config row closes its detail pane", fixtures=("a", "b"))
+@scenario("Removing the open config row closes its detail pane", fixtures=("a", "b"), steals_focus=True)
 def remove_open_row(doll, a, b, screenshots):
     doll.open_row(b.dock_title)
     wait_until(lambda: detail_pane_open(doll, b), describe=lambda: f"rows: {doll.config_rows()}, buttons: {doll.config_buttons()}",
@@ -595,7 +616,7 @@ def remove_open_row(doll, a, b, screenshots):
                what=f"the detail pane of the removed row {b.dock_title} stays open")
 
 
-@scenario("A bundle ID saved twice gives one config row", fixtures=("a", "a"))
+@scenario("A bundle ID saved twice gives one config row", fixtures=("a", "a"), steals_focus=True)
 def duplicate_saved_app(doll, a, _, screenshots):
     rows = [r["name"] for r in doll.config_rows()]
     if rows != [a.dock_title]:
@@ -668,23 +689,43 @@ def reset_fixtures(fixtures):
         launch_fixture(fixture)
 
 
-def run_scenario(s: Scenario, screenshots: bool) -> str:
+def scenario_outcome(s: Scenario, screenshots: bool) -> tuple[str, str]:
     try:
         reset_fixtures(s.fixtures)
         with DollPlus(s.name, s.fixtures, s.red_badge, s.hide_when_empty) as doll:
             s.body(doll, *s.fixtures, screenshots)
-        detail = ""
-        outcome = "XPASS" if s.known_issue else "PASS"
+        return ("XPASS" if s.known_issue else "PASS"), ""
     except CheckFailed as error:
-        detail = str(error)
-        outcome = "XFAIL" if s.known_issue else "FAIL"
+        return ("XFAIL" if s.known_issue else "FAIL"), str(error)
     except EnvironmentProblem as error:
-        detail = str(error)
-        outcome = "ERROR"
+        return "ERROR", str(error)
+
+
+def quiet_scenario_outcome(s: Scenario, screenshots: bool) -> tuple[str, str, str | None]:
+    before = frontmost_app()
+    with activation_watch() as activations:
+        outcome, detail = scenario_outcome(s, screenshots)
+    after = frontmost_app()
+    if stolen := [a["name"] for a in activations if a["bundleId"] in SUITE_BUNDLE_IDS]:
+        return "FAIL", "\n    ".join(filter(None, [f"the scenario activated {', '.join(stolen)}", detail])), None
+    # The user works during a quiet run, so an app switch of the user gives only a note.
+    if after["bundleId"] != before["bundleId"]:
+        return outcome, detail, f"note: the frontmost app changed from {before['name']} to {after['name']}, with no activation of a suite app"
+    return outcome, detail, None
+
+
+def run_scenario(s: Scenario, screenshots: bool, quiet: bool) -> str:
     issue = f" (#{s.known_issue})" if s.known_issue else ""
+    if quiet and s.steals_focus:
+        print(f"SKIP   {s.name}{issue}\n    it takes the window focus. Run it without --quiet")
+        return "SKIP"
+    if quiet:
+        outcome, detail, note = quiet_scenario_outcome(s, screenshots)
+    else:
+        (outcome, detail), note = scenario_outcome(s, screenshots), None
     print(f"{outcome:5}  {s.name}{issue}")
-    if detail:
-        print(f"    {detail}")
+    for line in filter(None, [detail, note]):
+        print(f"    {line}")
     if outcome == "XPASS":
         print(f"    This scenario passes now. Remove known_issue={s.known_issue} if #{s.known_issue} is fixed.")
     return outcome
@@ -707,13 +748,13 @@ def dock_lock():
         yield
 
 
-def command_run(names, screenshots):
+def command_run(names, screenshots, quiet):
     selected = [s for s in SCENARIOS if not names or s.name in names]
     unknown = set(names) - {s.name for s in SCENARIOS}
     if unknown:
         sys.exit(f"unknown scenario: {', '.join(sorted(unknown))}")
     with dock_lock():
-        return run_selected(selected, screenshots)
+        return run_selected(selected, screenshots, quiet)
 
 
 def bundle_id_of(binary: Path):
@@ -749,16 +790,16 @@ def command_demo(binary: Path, red_badge: bool, hide_when_empty: bool, cycles: i
                 os.kill(pid, signal.SIGTERM)
 
 
-def run_selected(selected, screenshots):
+def run_selected(selected, screenshots, quiet):
     try:
         require_trusted()
     except EnvironmentProblem as error:
         sys.exit(f"ERROR  {error}")
-    outcomes = [run_scenario(s, screenshots) for s in selected]
+    outcomes = [run_scenario(s, screenshots, quiet) for s in selected]
     for fixture in FIXTURES.values():
         if fixture_pids(fixture):
             quit_fixture(fixture)
-    counts = {o: outcomes.count(o) for o in ("PASS", "FAIL", "XFAIL", "XPASS", "ERROR") if outcomes.count(o)}
+    counts = {o: outcomes.count(o) for o in ("PASS", "FAIL", "XFAIL", "XPASS", "ERROR", "SKIP") if outcomes.count(o)}
     print("\n" + ", ".join(f"{n} {o}" for o, n in counts.items()))
     return 1 if {"FAIL", "XPASS", "ERROR"} & set(outcomes) else 0
 
@@ -773,6 +814,8 @@ def main():
     r = sub.add_parser("run")
     r.add_argument("names", nargs="*")
     r.add_argument("--screenshots", action="store_true")
+    r.add_argument("--quiet", action="store_true",
+                   help="skip the scenarios that take the window focus, and fail a scenario that activates Doll Plus or a fixture")
     sub.add_parser("list")
     d = sub.add_parser("demo")
     d.add_argument("--app", type=Path, default=APP_BINARY, help="the e2e copy of Doll Plus.app or its binary, for example build/e2e/Doll Plus.app of a PR worktree")
@@ -790,9 +833,10 @@ def main():
     elif args.command == "list":
         for s in SCENARIOS:
             issue = f"  [known issue #{s.known_issue}]" if s.known_issue else ""
-            print(f"{s.name:22} {s.summary}{issue}")
+            focus = "  [steals focus]" if s.steals_focus else ""
+            print(f"{s.name:26} {s.summary}{issue}{focus}")
     elif args.command == "run":
-        sys.exit(command_run(args.names, args.screenshots))
+        sys.exit(command_run(args.names, args.screenshots, args.quiet))
     elif args.command == "demo":
         app = args.app.resolve()
         command_demo(app / "Contents/MacOS/Doll Plus" if app.suffix == ".app" else app, args.red_badge, args.hide_when_empty, args.cycles)

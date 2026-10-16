@@ -18,7 +18,6 @@ let giantBadgeYOffset: CGFloat = 10
 struct GiantBadgeView: View {
 
     @ObservedObject var controller: GiantBadgeViewController
-    var onTap: (() -> Void)?
 
     @State private var scale: CGFloat = 0.1
     @State private var animationCounter: Int = 0
@@ -37,11 +36,7 @@ struct GiantBadgeView: View {
 
             Spacer()
         }
-        .contentShape(Rectangle())
         .frame(width: giantBadgeSize.width, height: giantBadgeSize.height)
-        .onTapGesture {
-            onTap?()
-        }
         .onReceive(controller.$animationFlag) { _ in
             animationCounter = 0
             startAnimation()
