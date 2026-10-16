@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end scenarios for Doll Plus.
 
-    python3 -I scripts/e2e.py build             build Doll Plus, the fixtures and the Dock probe
+    python3 -I scripts/e2e.py build             build Doll Plus, the fixtures, the Dock probe and the config driver
     python3 -I scripts/e2e.py probe [--prompt]  print the Dock items as JSON
     python3 -I scripts/e2e.py run [NAME ...]    run all or the named scenarios
     python3 -I scripts/e2e.py list              list the scenarios
@@ -16,6 +16,7 @@ import fcntl
 import json
 import os
 import plistlib
+import shutil
 import signal
 import subprocess
 import sys
@@ -28,8 +29,13 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build"
 E2E = BUILD / "e2e"
 DERIVED_DATA = BUILD / "DerivedData"
-APP_BINARY = DERIVED_DATA / "Build/Products/Debug/Doll Plus.app/Contents/MacOS/Doll Plus"
+BUILT_APP = DERIVED_DATA / "Build/Products/Debug/Doll Plus.app"
+# A separate bundle ID gives the scenarios their own settings domain. The stored settings of the user stay unchanged.
+APP = E2E / "Doll Plus.app"
+APP_BUNDLE_ID = "com.matikka96.DollPlus.e2e"
+APP_BINARY = APP / "Contents/MacOS/Doll Plus"
 PROBE = E2E / "dock-probe"
+CONFIG_DRIVER = E2E / "config-driver"
 STATE_FILE = E2E / "state.json"
 LOGS = E2E / "logs"
 SCREENSHOTS = E2E / "screenshots"
@@ -101,6 +107,15 @@ def wait_until(condition, timeout=TIMEOUT, describe=lambda: ""):
 def build_app():
     run(["xcodebuild", "-project", str(ROOT / "DollPlus.xcodeproj"), "-scheme", "DollPlus",
          "-configuration", "Debug", "-destination", f"platform=macOS,arch={os.uname().machine}", "-derivedDataPath", str(DERIVED_DATA), "-quiet", "build"])
+    shutil.rmtree(APP, ignore_errors=True)
+    shutil.copytree(BUILT_APP, APP, symlinks=True)
+    info_plist = APP / "Contents/Info.plist"
+    with open(info_plist, "rb") as f:
+        info = plistlib.load(f)
+    info["CFBundleIdentifier"] = APP_BUNDLE_ID
+    with open(info_plist, "wb") as f:
+        plistlib.dump(info, f)
+    run(["codesign", "--force", "--deep", "--sign", "-", str(APP)], stderr=subprocess.DEVNULL)
 
 
 def build_fixture(fixture: Fixture):
@@ -135,15 +150,16 @@ def build_fixture(fixture: Fixture):
     run([LSREGISTER, "-f", str(fixture.app)])
 
 
-def build_probe():
+def build_helpers():
     E2E.mkdir(parents=True, exist_ok=True)
     run(["swiftc", "-O", "-o", str(PROBE), str(ROOT / "scripts/e2e/DockProbe.swift")])
+    run(["swiftc", "-O", "-o", str(CONFIG_DRIVER), str(ROOT / "scripts/e2e/ConfigDriver.swift")])
 
 
 def build_all(skip_app=False):
     if not skip_app:
         build_app()
-    build_probe()
+    build_helpers()
     for fixture in FIXTURES.values():
         build_fixture(fixture)
 
@@ -259,6 +275,16 @@ class DollPlus:
             return json.loads(STATE_FILE.read_text())
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
+
+    def config(self, *args):
+        result = subprocess.run([str(CONFIG_DRIVER), str(self.process.pid), *args], capture_output=True, text=True)
+        try:
+            output = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            raise CheckFailed(f"the config driver printed no JSON: {result.stdout}{result.stderr}")
+        if result.returncode != 0:
+            raise CheckFailed(f"config window: {output.get('error')}")
+        return output
 
     def app(self, fixture: Fixture):
         apps = self.state().get("apps", [])
@@ -416,6 +442,35 @@ def no_redraw_red_badge(doll, a, screenshots):
     assert_no_redraw(doll, a, "3")
 
 
+def assert_selected_rows(doll, names):
+    try:
+        wait_until(lambda: [r["name"] for r in doll.config("rows") if r["selected"]] == names,
+                   describe=lambda: f"rows: {doll.config('rows')}")
+    except CheckFailed as error:
+        raise CheckFailed(f"the selected rows are not {names}: {error}")
+
+
+@scenario("A config row stays selected after a setting changes", fixtures=("a", "b"))
+def row_keeps_selection(doll, a, b, screenshots):
+    doll.config("open", a.dock_title)
+    assert_selected_rows(doll, [a.dock_title])
+    doll.config("toggle", "Hide icon if monitored app isn't running")
+    time.sleep(1)
+    assert_selected_rows(doll, [a.dock_title])
+
+
+@scenario("The Remove item of a config row stops monitoring the app", fixtures=("a", "b"))
+def remove_from_list(doll, a, b, screenshots):
+    doll.config("remove", b.dock_title)
+    try:
+        wait_until(lambda: [app["bundleId"] for app in doll.state().get("apps", [])] == [a.bundle_id],
+                   describe=lambda: f"state: {doll.state().get('apps')}")
+    except CheckFailed as error:
+        raise CheckFailed(f"Doll Plus still monitors {b.dock_title}: {error}")
+    rows = [r["name"] for r in doll.config("rows")]
+    if rows != [a.dock_title]:
+        raise CheckFailed(f"the config list shows {rows}, expected {[a.dock_title]}")
+
 
 def reset_fixtures(fixtures):
     for fixture in FIXTURES.values():
@@ -515,7 +570,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("build")
-    build.add_argument("--skip-app", action="store_true", help="build only the fixtures and the probe")
+    build.add_argument("--skip-app", action="store_true", help="build only the fixtures and the helpers")
     p = sub.add_parser("probe")
     p.add_argument("--prompt", action="store_true", help="ask macOS to show the Accessibility prompt")
     r = sub.add_parser("run")
@@ -532,7 +587,7 @@ def main():
         build_all(args.skip_app)
     elif args.command == "probe":
         if not PROBE.exists():
-            build_probe()
+            build_helpers()
         print(json.dumps(probe(args.prompt), indent=2))
     elif args.command == "list":
         for s in SCENARIOS:

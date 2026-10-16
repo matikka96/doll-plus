@@ -30,13 +30,18 @@ struct ConfigView: View {
                 } else {
                     List {
                         ForEach(Array(items.enumerated()), id: \.element.id) { (itemIndex, item) in
+                            let statusBar = MonitorEngine.shared.statusBars.first {
+                                $0.monitoredApp == item
+                            }
                             NavigationLink {
-                                let statusBar = MonitorEngine.shared.statusBars.first {
-                                    $0.monitoredApp == item
-                                }
                                 MonitorConfigView(itemIndex: itemIndex, statusBar: statusBar, selectedApp: item)
                             } label: {
                                 MonitoredAppItemView(appItem: item)
+                            }
+                            .contextMenu {
+                                Button("Remove") {
+                                    statusBar?.destroy()
+                                }
                             }
                         }
                     }.frame(minWidth: 250)

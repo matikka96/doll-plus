@@ -120,7 +120,7 @@ class MonitorEngine {
 }
 
 class MonitoredApp: Equatable, Identifiable {
-    var id: String { UUID().uuidString }
+    var id: String { bundleId }
     let bundleId: String
     let appName: String
 
