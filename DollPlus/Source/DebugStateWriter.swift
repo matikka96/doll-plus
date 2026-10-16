@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Monitor
 
 enum DebugStateWriter {
@@ -52,6 +53,8 @@ private extension StatusBarController {
             "neededWidth": button?.cell?.cellSize.width ?? 0,
             "width": button?.bounds.width ?? 0,
             "redrawCount": redrawCount,
+            "redBadgeLabel": redBadgeLabel ?? NSNull(),
+            "imageDigest": button?.image?.tiffRepresentation.map { SHA256.hash(data: $0).description } ?? "",
             "frame": [frame.minX, frame.minY, frame.width, frame.height],
         ]
     }

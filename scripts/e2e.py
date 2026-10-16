@@ -54,7 +54,7 @@ STABLE_WINDOW = 5.0
 RENDER_SETTLE = 1.0
 # Points from the right end of the menu bar. A new status item goes to the left end.
 SEEDED_POSITION = 120
-DEMO_BADGES = ("", "1", "12", "123")
+DEMO_BADGES = ("", "1", "12", "123", "new")
 DEMO_STEP = 3.0
 # NSWindow.Level.popUpMenu, the level of the arrow panel and the alert panel.
 PANEL_LAYER = 101
@@ -680,6 +680,22 @@ def badge_growth(doll, a, screenshots):
             raise CheckFailed(f"the badge {badge!r} needs {app['neededWidth']:.1f} pt, the button has {app['width']:.1f} pt")
 
 
+@scenario("A red badge shows 99+ above 99 and a dot for a text that does not fit", red_badge=True)
+def red_badge_overflow(doll, a, screenshots):
+    images = {}
+    for badge, label in (("99", "99"), ("123", "99+"), ("new", "new"), ("hello", "•")):
+        set_badge(a, badge)
+        wait_dock_label(a, badge)
+        app = doll.wait_badge(a, badge)
+        if screenshots:
+            doll.screenshot(a, f"red-badge-{badge}")
+        if app.get("redBadgeLabel") != label:
+            raise CheckFailed(f"the red badge {badge!r} shows {app.get('redBadgeLabel')!r}, expected {label!r}")
+        images[badge] = app.get("imageDigest")
+    if len(set(images.values())) != len(images):
+        raise CheckFailed(f"two red badges give the same status item image: {images}")
+
+
 def assert_dock_title_match(doll, fixture, badge):
     set_badge(fixture, badge)
     wait_dock_label(fixture, badge)
@@ -764,9 +780,21 @@ def no_redraw_red_badge(doll, a, screenshots):
     assert_no_redraw(doll, a, "3")
 
 
+def selected_rows(doll):
+    return [r["name"] for r in doll.config_rows() if r["selected"]]
+
+
 def assert_selected_rows(doll, names):
-    wait_until(lambda: [r["name"] for r in doll.config_rows() if r["selected"]] == names,
+    wait_until(lambda: selected_rows(doll) == names,
                describe=lambda: f"rows: {doll.config_rows()}", what=f"the selected rows are not {names}")
+
+
+def assert_selection_holds(doll, names):
+    deadline = time.monotonic() + RENDER_SETTLE
+    while time.monotonic() < deadline:
+        if (rows := selected_rows(doll)) != names:
+            raise CheckFailed(f"the selected rows changed from {names} to {rows}")
+        time.sleep(POLL)
 
 
 @scenario("A config row stays selected after a setting changes", fixtures=("a", "b"), steals_focus=True)
@@ -774,8 +802,7 @@ def row_keeps_selection(doll, a, b, screenshots):
     doll.open_row(a.dock_title)
     assert_selected_rows(doll, [a.dock_title])
     doll.toggle_setting("Hide icon if monitored app isn't running")
-    time.sleep(RENDER_SETTLE)
-    assert_selected_rows(doll, [a.dock_title])
+    assert_selection_holds(doll, [a.dock_title])
 
 
 @scenario("The Remove item of a config row stops monitoring the app", fixtures=("a", "b"), steals_focus=True)
