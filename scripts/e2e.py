@@ -33,6 +33,9 @@ PROBE = E2E / "dock-probe"
 STATE_FILE = E2E / "state.json"
 LOGS = E2E / "logs"
 SCREENSHOTS = E2E / "screenshots"
+# `open` makes each ad-hoc signed fixture build its own TCC responsible process,
+# so a control file in ~/Documents causes a prompt for each build.
+CONTROL_DIR = Path.home() / "Library/Caches/com.matikka96.DollPlus.e2e/control"
 LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 POLL = 0.25
@@ -57,7 +60,7 @@ class Fixture:
 
     @property
     def control_file(self) -> Path:
-        return E2E / "control" / f"{self.bundle_id}.badge"
+        return CONTROL_DIR / f"{self.bundle_id}.badge"
 
     @property
     def dock_title(self) -> str:
@@ -106,7 +109,6 @@ def build_app():
 def build_fixture(fixture: Fixture):
     contents = fixture.app / "Contents"
     (contents / "MacOS").mkdir(parents=True, exist_ok=True)
-    fixture.control_file.parent.mkdir(parents=True, exist_ok=True)
     info = {
         "CFBundleIdentifier": fixture.bundle_id,
         "CFBundleName": fixture.bundle_name,
