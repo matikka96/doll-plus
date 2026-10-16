@@ -12,6 +12,11 @@ struct AboutView: View {
 
                 HStack {
                     Text("How it works?")
+                    Text("https://github.com/matikka96/doll-plus")
+                }
+
+                HStack {
+                    Text("Based on")
                     Text("https://github.com/xiaogdgenuine/Doll")
                 }
 
