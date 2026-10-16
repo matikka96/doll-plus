@@ -1,34 +1,14 @@
 {
-  "object": {
-    "pins": [
-      {
-        "package": "KeyboardShortcuts",
-        "repositoryURL": "https://github.com/sindresorhus/KeyboardShortcuts",
-        "state": {
-          "branch": null,
-          "revision": "5e674337c13f9d0f8ff72d9d39ded08ce9bb7e34",
-          "version": "1.7.2"
-        }
-      },
-      {
-        "package": "LaunchAtLogin",
-        "repositoryURL": "https://github.com/sindresorhus/LaunchAtLogin",
-        "state": {
-          "branch": "main",
-          "revision": "e8171b3e38a2816f579f58f3dac1522aa39efe41",
-          "version": null
-        }
-      },
-      {
-        "package": "Introspect",
-        "repositoryURL": "git@github.com:siteline/SwiftUI-Introspect.git",
-        "state": {
-          "branch": null,
-          "revision": "f2616860a41f9d9932da412a8978fec79c06fe24",
-          "version": "0.1.4"
-        }
+  "pins" : [
+    {
+      "identity" : "keyboardshortcuts",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sindresorhus/KeyboardShortcuts",
+      "state" : {
+        "revision" : "772133d9dbe800fdac0473226822994c5c162c58",
+        "version" : "3.1.0"
       }
-    ]
-  },
-  "version": 1
+    }
+  ],
+  "version" : 2
 }

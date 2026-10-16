@@ -8,7 +8,6 @@
 import SwiftUI
 import Utils
 import Monitor
-import Introspect
 
 struct MonitorConfigView: View {
     var isAddMode = false
@@ -22,7 +21,7 @@ struct MonitorConfigView: View {
     @State var showGiantBadge: Bool = false
     @State var iconIsMask: Bool = false
     @State var keyword: String = ""
-    @State private var defaultFocusSet = false
+    @FocusState private var searchFieldFocused: Bool
     @State private var allAppItems: [AppItem] = []
     @State private var filteredAppItems: [AppItem] = []
     
@@ -60,7 +59,7 @@ struct MonitorConfigView: View {
                 HStack {
                     TextField("", text: keywordBinding)
                             .placeholder(when: keyword.isEmpty) {
-                                Text("Select an app to monitor it's badge")
+                                Text("Select an app to monitor its badge")
                                         .selfSizeMask(
                                                 LinearGradient(
                                                         gradient: Gradient(colors: [.blue, .red, .orange]),
@@ -70,11 +69,9 @@ struct MonitorConfigView: View {
                             }
                             .textFieldStyle(.plain)
                             .font(.system(size: 24))
-                            .introspectTextField {
-                                if !defaultFocusSet {
-                                    defaultFocusSet = true
-                                    $0.becomeFirstResponder()
-                                }
+                            .focused($searchFieldFocused)
+                            .onAppear {
+                                searchFieldFocused = true
                             }
                     
                     Button("Pick") {

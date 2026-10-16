@@ -1,11 +1,10 @@
-// swift-tools-version:5.5
-// The swift-tools-version declares the minimum version of Swift required to build this package.
+// swift-tools-version:5.9
 
 import PackageDescription
 
 let package = Package(
         name: "Monitor",
-        platforms: [.macOS(.v10_15)],
+        platforms: [.macOS(.v13)],
         products: [
             .library(name: "Monitor", targets: ["Monitor"]),
             .library(name: "Utils", targets: ["Utils"]),

@@ -8,6 +8,7 @@
 import Foundation
 import KeyboardShortcuts
 
+@MainActor
 enum HotkeyManager {
     static func setup() {
         KeyboardShortcuts.onKeyUp(for: .toggleConfigWindow) {
@@ -17,5 +18,5 @@ enum HotkeyManager {
 }
 
 extension KeyboardShortcuts.Name {
-    static let toggleConfigWindow = Self("toggleConfigWindow", default: .init(.d, modifiers: [.command, .shift]))
+    static let toggleConfigWindow = Self("toggleConfigWindow", initial: .init(.d, modifiers: [.command, .shift]))
 }
