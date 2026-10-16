@@ -334,15 +334,16 @@ def clear_badge(doll, a, screenshots):
         raise CheckFailed(f"the status item still has a title: {app}")
 
 
-@scenario("A two-digit badge fits in the status item")
-def two_digit_fit(doll, a, screenshots):
-    set_badge(a, "12")
-    wait_dock_label(a, "12")
-    app = doll.wait_badge(a, "12")
-    if screenshots:
-        doll.screenshot(a, "two-digits")
-    if app["fittingWidth"] > app["length"] + 0.5:
-        raise CheckFailed(f"the text needs {app['fittingWidth']} pt, the item has {app['length']} pt")
+@scenario("The status item grows with the badge: 1, 12, 123")
+def badge_growth(doll, a, screenshots):
+    for badge in ("1", "12", "123"):
+        set_badge(a, badge)
+        wait_dock_label(a, badge)
+        app = doll.wait_badge(a, badge)
+        if screenshots:
+            doll.screenshot(a, f"badge-{badge}")
+        if app["neededWidth"] > app["width"] + 0.5:
+            raise CheckFailed(f"the badge {badge!r} needs {app['neededWidth']:.1f} pt, the button has {app['width']:.1f} pt")
 
 
 def assert_dock_title_match(doll, fixture, badge):
@@ -400,12 +401,12 @@ def assert_no_redraw(doll, fixture, badge):
         raise CheckFailed(f"{after - before} redraws in {STABLE_WINDOW:.0f} s with no badge change")
 
 
-@scenario("No redraw while the badge stays empty", known_issue=6)
+@scenario("No redraw while the badge stays empty")
 def no_redraw_empty(doll, a, screenshots):
     assert_no_redraw(doll, a, "")
 
 
-@scenario("No redraw while a red badge stays the same", known_issue=6, red_badge=True)
+@scenario("No redraw while a red badge stays the same", red_badge=True)
 def no_redraw_red_badge(doll, a, screenshots):
     assert_no_redraw(doll, a, "3")
 
