@@ -457,6 +457,22 @@ def badge_growth(doll, a, screenshots):
             raise CheckFailed(f"the badge {badge!r} needs {app['neededWidth']:.1f} pt, the button has {app['width']:.1f} pt")
 
 
+@scenario("A red badge shows 99+ above 99 and a dot for a text that does not fit", red_badge=True)
+def red_badge_overflow(doll, a, screenshots):
+    images = {}
+    for badge, label in (("99", "99"), ("123", "99+"), ("new", "new"), ("hello", "•")):
+        set_badge(a, badge)
+        wait_dock_label(a, badge)
+        app = doll.wait_badge(a, badge)
+        if screenshots:
+            doll.screenshot(a, f"red-badge-{badge}")
+        if app.get("redBadgeLabel") != label:
+            raise CheckFailed(f"the red badge {badge!r} shows {app.get('redBadgeLabel')!r}, expected {label!r}")
+        images[badge] = app.get("imageDigest")
+    if len(set(images.values())) != len(images):
+        raise CheckFailed(f"two red badges give the same status item image: {images}")
+
+
 def assert_dock_title_match(doll, fixture, badge):
     set_badge(fixture, badge)
     wait_dock_label(fixture, badge)

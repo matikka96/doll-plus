@@ -1,6 +1,7 @@
 import AppKit
 import Monitor
 import SwiftUI
+import Utils
 
 let defaultIconSize: CGFloat = 20
 let defaultIconFrameSize = NSSize(width: defaultIconSize, height: defaultIconSize)
@@ -11,6 +12,7 @@ class StatusBarController {
     private var isDark = false
     private(set) var latestBadgeText = ""
     private(set) var redrawCount = 0
+    private(set) var redBadgeLabel: String?
     private var latestMessageCount = 0
     private var drawnState: DrawnState?
 
@@ -163,7 +165,8 @@ class StatusBarController {
 
         let showsRedBadge = state.showAsRedBadge && !state.showOnlyAppIcon
         let showsText = !state.showAsRedBadge && !state.showOnlyAppIcon && !newText.isEmpty
-        let icon = showsRedBadge ? monitoredAppIcon.addBadgeToImage(drawText: newText) : monitoredAppIcon
+        redBadgeLabel = showsRedBadge ? RedBadgeLabel.text(for: newText, fits: NSImage.redBadgeFits) : nil
+        let icon = redBadgeLabel.map(monitoredAppIcon.addBadgeToImage(drawText:)) ?? monitoredAppIcon
         let adjustedIcon = (newText.isEmpty && state.grayOutWhenEmpty) ? (icon.grayOut() ?? icon) : icon
         updateBadgeIcon(icon: adjustedIcon, size: showsRedBadge ? nil : defaultIconFrameSize)
         statusItem.button?.title = showsText ? newText : ""
