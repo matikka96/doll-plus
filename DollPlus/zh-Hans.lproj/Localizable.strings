@@ -15,6 +15,7 @@
 "Tip me" = "喜欢这个 App？请 Doll 的原作者喝杯咖啡吧 :)";
 "Buy me a coffee" = "请我喝杯咖啡";
 "Hold option key ⌥ and click to config" = "按住 Option(⌥) 键点击图标即可配置";
+"%@ is not installed. Click to choose another app" = "未安装 %@。点击图标选择其他应用";
 
 "About author" = "Made by **元气满满小广东**";
 "How it works?" = "这是怎么做到的？";

@@ -9,12 +9,10 @@ let package = Package(
             .library(name: "Monitor", targets: ["Monitor"]),
             .library(name: "Utils", targets: ["Utils"]),
         ],
-        dependencies: [
-            // Dependencies declare other packages that this package depends on.
-            // .package(url: /* package url */, from: "1.0.0"),
-        ],
         targets: [
             .target(name: "Monitor"),
             .target(name: "Utils"),
+            .testTarget(name: "MonitorTests", dependencies: ["Monitor"]),
+            .testTarget(name: "UtilsTests", dependencies: ["Utils"]),
         ]
 )

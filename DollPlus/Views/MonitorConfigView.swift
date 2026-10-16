@@ -38,8 +38,8 @@ struct MonitorConfigView: View {
                 selectedAppItem
             }, set: { newSelectedAppItem in
                 if let newSelectedAppItem = newSelectedAppItem {
-                    if let previousMonitoredAppName = selectedApp?.appName, !isAddMode {
-                        MonitorService.unObserve(appName: previousMonitoredAppName)
+                    if let previousMonitoredApp = selectedApp, !isAddMode {
+                        MonitorService.unObserve(bundleId: previousMonitoredApp.bundleId)
                     }
 
                     let newMonitoredApp = MonitoredApp(newSelectedAppItem.bundleId, appName: newSelectedAppItem.localizedName)
@@ -85,21 +85,21 @@ struct MonitorConfigView: View {
 
                         Toggle("Invert the icon color on dark mode", isOn: $iconIsMask)
                             .onChange(of: iconIsMask) { enabled in
-                                AppSettings.toggleIconMask(for: selectedApp.appName, value: enabled)
+                                AppSettings.toggleIconMask(for: selectedApp.bundleId, value: enabled)
                                  MonitorEngine.shared.statusBars.forEach {
                                     $0.refreshIcon()
                                 }
                             }
                             .onAppear {
-                                iconIsMask = AppSettings.isIconMask(for: selectedApp.appName)
+                                iconIsMask = AppSettings.isIconMask(for: selectedApp.bundleId)
                             }
 
                         Toggle("Show a red arrow so you don't miss any notifications! :)", isOn: $showGiantBadge)
                             .onChange(of: showGiantBadge) { enabled in
-                                AppSettings.toggleGiantBadge(for: selectedApp.appName, value: enabled)
+                                AppSettings.toggleGiantBadge(for: selectedApp.bundleId, value: enabled)
                             }
                             .onAppear {
-                                showGiantBadge = AppSettings.isGiantBadgeEnabled(for: selectedApp.appName)
+                                showGiantBadge = AppSettings.isGiantBadgeEnabled(for: selectedApp.bundleId)
                             }
 
                         Spacer()
@@ -168,15 +168,14 @@ struct MonitorConfigView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         if panel.runModal() == .OK, let appURL = panel.url {
-            guard let appBundle = Bundle(url: appURL),
-                  let appName = (appBundle.infoDictionary?["CFBundleDisplayName"] ?? appBundle.infoDictionary?["CFBundleName"]) as? String else {
+            guard let bundleId = Bundle(url: appURL)?.bundleIdentifier else {
                 return
             }
-            if let previousMonitoredAppName = selectedApp?.appName, !isAddMode {
-                MonitorService.unObserve(appName: previousMonitoredAppName)
+            if let previousMonitoredApp = selectedApp, !isAddMode {
+                MonitorService.unObserve(bundleId: previousMonitoredApp.bundleId)
             }
 
-            let newMonitoredApp = MonitoredApp(appBundle.bundleIdentifier ?? "", appName: appName)
+            let newMonitoredApp = MonitoredApp(bundleId, appName: AppInfo.displayName(ofAppAt: appURL))
             MonitorEngine.shared.monitor(newApp: newMonitoredApp, at: itemIndex, statusBar: statusBar)
 
             if selectedApp == nil {
