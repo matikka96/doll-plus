@@ -367,6 +367,13 @@ def screens() -> list[Rect]:
     return [Rect.of(bounds) for bounds in ui("screens")]
 
 
+def screen_of(rect: Rect) -> Rect:
+    screen = next((s for s in screens() if s.contains(rect.center)), None)
+    if screen is None:
+        raise EnvironmentProblem(f"{rect} is on no screen {screens()}")
+    return screen
+
+
 def move_pointer(point):
     ui("move", *point)
 
@@ -871,8 +878,10 @@ def assert_no_tooltip(doll, when: str):
           steals_focus=True)
 def no_tooltip(doll, a, screenshots):
     start_text_fixture()
-    away = screens()[0].center
-    move_pointer(doll.status_item(a).center)
+    item = doll.status_item(a)
+    # Doll Plus places the arrow on the screen with the pointer (#49).
+    away = screen_of(item).center
+    move_pointer(item.center)
     time.sleep(HOVER_DURATION)
     assert_no_tooltip(doll, "while the pointer stays on the status item")
     move_pointer(away)
@@ -891,6 +900,8 @@ def no_tooltip(doll, a, screenshots):
           alerts=True, steals_focus=True)
 def arrow_click_through(doll, a, screenshots):
     start_text_fixture()
+    # Doll Plus places the arrow on the screen with the pointer (#49).
+    move_pointer(screen_of(settled_status_item(doll, a)).center)
     set_badge(a, "3")
     doll.wait_badge(a, "3")
     arrow = wait_until(doll.arrow, what="the giant arrow did not show")
