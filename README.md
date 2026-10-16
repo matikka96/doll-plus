@@ -26,10 +26,16 @@ If we use too much **focus power** without paying the cost, what will we become 
 # Install
 Doll Plus does not have a release yet. Build it from source:
 
-1. Open `DollPlus.xcodeproj` in Xcode 26 or later.
-2. Select the `DollPlus` scheme and run it.
+1. Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` and set your team ID. A stable signing identity keeps the Accessibility permission after each install.
+2. Check out `main` with a clean tree.
+3. Run `python3 -I scripts/install.py`. It builds the Release configuration, quits the running Doll Plus, replaces `/Applications/Doll Plus.app` and launches it.
 
 Minimum system requirement: **_macOS 13.0_** (Ventura)
+
+## Development builds
+The Debug configuration builds "Doll Plus Dev" with the bundle ID `com.matikka96.DollPlus.dev`. It has its own settings, its own Accessibility entry and no default hotkey, so it does not change the installed Doll Plus. Its config window title ends with "(Dev)".
+
+`python3 -I scripts/e2e.py --help` lists the end-to-end commands. `python3 -I scripts/e2e.py clean-registrations` removes the Launch Services registrations of the development and test copies.
 
 # How to use?
 It's simple, click on "+" button at the left bottom corner, search and select the app you want to monitor:

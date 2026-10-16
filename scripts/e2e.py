@@ -9,6 +9,9 @@
                                                 scenario that activates Doll Plus or a fixture
     python3 -I scripts/e2e.py list              list the scenarios
     python3 -I scripts/e2e.py demo [--app PATH] cycle a fixture badge for a manual check
+    python3 -I scripts/e2e.py clean-registrations
+                                                unregister from Launch Services each Doll Plus and fixture copy
+                                                outside /Applications, also the copies that no longer exist
 
 The process that runs this script needs the Accessibility permission. Doll Plus
 runs as a child process, so macOS checks the permission of the terminal.
@@ -16,9 +19,11 @@ runs as a child process, so macOS checks the permission of the terminal.
 
 import argparse
 import fcntl
+import fnmatch
 import json
 import os
 import plistlib
+import re
 import shutil
 import signal
 import subprocess
@@ -32,14 +37,16 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build"
 E2E = BUILD / "e2e"
 DERIVED_DATA = BUILD / "DerivedData"
-BUILT_APP = DERIVED_DATA / "Build/Products/Debug/Doll Plus.app"
+BUILT_APP = DERIVED_DATA / "Build/Products/Debug/Doll Plus Dev.app"
+BUILT_APP_BUNDLE_ID = "com.matikka96.DollPlus.dev"
 # Its own bundle ID gives the copy its own UserDefaults domain, apart from the stored settings of the user.
-APP = E2E / "Doll Plus.app"
+APP = E2E / BUILT_APP.name
 APP_BUNDLE_ID = "com.matikka96.DollPlus.e2e"
-APP_BINARY = APP / "Contents/MacOS/Doll Plus"
+APP_BINARY = APP / "Contents/MacOS" / BUILT_APP.stem
 PROBE = E2E / "dock-probe"
 CONFIG_DRIVER = E2E / "config-driver"
 UI_DRIVER = E2E / "ui-driver"
+PERSONAL_COPY_STAND_IN = E2E / "stand-in/Doll Plus"
 STATE_FILE = E2E / "state.json"
 LOGS = E2E / "logs"
 SCREENSHOTS = E2E / "screenshots"
@@ -198,16 +205,22 @@ def wait_until(condition, timeout=TIMEOUT, describe=lambda: "", what=None):
 
 
 
+def read_info(app: Path) -> dict:
+    with open(app / "Contents/Info.plist", "rb") as f:
+        return plistlib.load(f)
+
+
 def build_app():
     run(["xcodebuild", "-project", str(ROOT / "DollPlus.xcodeproj"), "-scheme", "DollPlus",
          "-configuration", "Debug", "-destination", f"platform=macOS,arch={os.uname().machine}", "-derivedDataPath", str(DERIVED_DATA), "-quiet", "build"])
+    info = read_info(BUILT_APP)
+    identity = info.get("CFBundleIdentifier"), info.get("CFBundleName"), info.get("CFBundleDisplayName")
+    if identity != (BUILT_APP_BUNDLE_ID, BUILT_APP.stem, BUILT_APP.stem):
+        sys.exit(f"ERROR  the Debug product has the identity {identity}, expected {BUILT_APP_BUNDLE_ID} and {BUILT_APP.stem!r}")
     shutil.rmtree(APP, ignore_errors=True)
     shutil.copytree(BUILT_APP, APP, symlinks=True)
-    info_plist = APP / "Contents/Info.plist"
-    with open(info_plist, "rb") as f:
-        info = plistlib.load(f)
     info["CFBundleIdentifier"] = APP_BUNDLE_ID
-    with open(info_plist, "wb") as f:
+    with open(APP / "Contents/Info.plist", "wb") as f:
         plistlib.dump(info, f)
     run(["codesign", "--force", "--deep", "--sign", "-", str(APP)], stderr=subprocess.DEVNULL)
 
@@ -244,7 +257,6 @@ def build_fixture(fixture: Fixture):
     run(["swiftc", "-O", "-o", str(contents / "MacOS" / fixture.bundle_name),
          str(ROOT / "scripts/e2e/BadgeFixture.swift")])
     run(["codesign", "--force", "--sign", "-", str(fixture.app)], stderr=subprocess.DEVNULL)
-    run([LSREGISTER, "-f", str(fixture.app)])
 
 
 def build_helpers():
@@ -252,6 +264,8 @@ def build_helpers():
     run(["swiftc", "-O", "-o", str(PROBE), str(ROOT / "scripts/e2e/DockProbe.swift")])
     run(["swiftc", "-O", "-o", str(CONFIG_DRIVER), str(ROOT / "scripts/e2e/ConfigDriver.swift")])
     run(["swiftc", "-O", "-o", str(UI_DRIVER), str(ROOT / "scripts/e2e/UIDriver.swift")])
+    PERSONAL_COPY_STAND_IN.parent.mkdir(exist_ok=True)
+    run(["swiftc", "-O", "-o", str(PERSONAL_COPY_STAND_IN), str(ROOT / "scripts/e2e/PersonalCopyStandIn.swift")])
 
 
 def build_all(skip_app=False):
@@ -260,6 +274,32 @@ def build_all(skip_app=False):
     build_helpers()
     for fixture in FIXTURES.values():
         build_fixture(fixture)
+
+
+# Xcode registers the Debug product, and Launch Services registers each app that starts.
+# lsregister -u fails for an app that is not registered, so the exit status is ignored.
+def unregister_build_apps():
+    for app in (BUILT_APP, APP, *(f.app for f in FIXTURES.values())):
+        subprocess.run([LSREGISTER, "-u", str(app)], capture_output=True)
+
+
+def registered_paths() -> list[str]:
+    dump = run([LSREGISTER, "-dump"], capture_output=True, text=True).stdout
+    return re.findall(r"^path:\s+(.+?) \(0x[0-9a-f]+\)$", dump, re.MULTILINE)
+
+
+def is_stale_registration(path: str) -> bool:
+    name = Path(path).name
+    patterns = ("Doll Plus*.app", "DollFixture*.app", *(f.app.name for f in FIXTURES.values()))
+    return not path.startswith("/Applications/") and any(fnmatch.fnmatchcase(name, p) for p in patterns)
+
+
+def command_clean_registrations():
+    stale = sorted({path for path in registered_paths() if is_stale_registration(path)})
+    for path in stale:
+        run([LSREGISTER, "-u", path])
+        print(f"unregistered {path}")
+    print(f"{len(stale)} registrations removed")
 
 
 
@@ -320,9 +360,12 @@ def fixture_pids(fixture: Fixture):
     return [int(pid) for pid in result.stdout.split()]
 
 
-def doll_plus_pids():
-    result = subprocess.run(["pgrep", "-x", "Doll Plus"], capture_output=True, text=True)
-    return [int(pid) for pid in result.stdout.split()]
+# The e2e copy of any worktree counts. The personal copy in /Applications and a dev build from Xcode do not.
+def e2e_copy_pids():
+    suffix = f"/build/e2e/{APP.name}/Contents/MacOS/{APP_BINARY.name}"
+    processes = run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True).stdout.splitlines()
+    rows = [line.split(None, 1) for line in processes]
+    return [int(row[0]) for row in rows if len(row) == 2 and row[1].endswith(suffix)]
 
 
 def launch_fixture(fixture: Fixture):
@@ -483,8 +526,8 @@ class DollPlus:
         self.stop()
 
     def start(self):
-        if doll_plus_pids():
-            raise EnvironmentProblem("another Doll Plus process runs. Quit it first")
+        if pids := e2e_copy_pids():
+            raise EnvironmentProblem(f"another e2e copy of Doll Plus runs with the PIDs {pids}. Quit it first")
         if not self.binary.is_file():
             raise EnvironmentProblem(f"{self.binary} does not exist. Run python3 -I scripts/e2e.py build in its worktree")
         STATE_FILE.unlink(missing_ok=True)
@@ -897,7 +940,7 @@ def reopen_shows_config(doll, a, screenshots):
     doll.close_config_window()
     run(["open", str(APP)])
     wait_until(doll.config_frame, what="the config window did not show after a second open")
-    if (pids := doll_plus_pids()) != [doll.process.pid]:
+    if (pids := e2e_copy_pids()) != [doll.process.pid]:
         raise CheckFailed(f"the second open started another Doll Plus: {pids}")
     assert_config_frame(doll, moved, "a close and a second open")
     doll.relaunch()
@@ -1134,6 +1177,28 @@ def alert_hidden_item(doll, a, screenshots):
         assert_alert_below_item(doll, a, panel)
 
 
+@contextmanager
+def personal_copy_stand_in():
+    process = subprocess.Popen([str(PERSONAL_COPY_STAND_IN)])
+    try:
+        yield process
+    finally:
+        process.terminate()
+        process.wait()
+
+
+@scenario("A scenario runs while the personal Doll Plus runs, and leaves it running")
+def personal_copy_runs(doll, a, screenshots):
+    with personal_copy_stand_in() as personal:
+        doll.relaunch()
+        set_badge(a, "2")
+        wait_dock_label(a, "2")
+        doll.wait_badge(a, "2")
+        doll.stop()
+        if personal.poll() is not None:
+            raise CheckFailed(f"the personal copy stopped with code {personal.returncode}")
+
+
 def reset_fixtures(fixtures):
     for fixture in FIXTURES.values():
         if fixture_pids(fixture):
@@ -1275,10 +1340,11 @@ def main():
                    help="skip the scenarios that take the window focus, and fail a scenario that activates Doll Plus or a fixture")
     sub.add_parser("list")
     d = sub.add_parser("demo")
-    d.add_argument("--app", type=Path, default=APP_BINARY, help="the e2e copy of Doll Plus.app or its binary, for example build/e2e/Doll Plus.app of a PR worktree")
+    d.add_argument("--app", type=Path, default=APP_BINARY, help=f"the e2e copy of {APP.name} or its binary, for example build/e2e/{APP.name} of a PR worktree")
     d.add_argument("--red-badge", action="store_true")
     d.add_argument("--hide-when-empty", action="store_true", help="hide the status item while the badge is empty")
     d.add_argument("--cycles", type=int, default=5)
+    sub.add_parser("clean-registrations")
     args = parser.parse_args()
 
     if args.command == "build":
@@ -1296,8 +1362,13 @@ def main():
         sys.exit(command_run(args.names, args.screenshots, args.quiet))
     elif args.command == "demo":
         app = args.app.resolve()
-        command_demo(app / "Contents/MacOS/Doll Plus" if app.suffix == ".app" else app, args.red_badge, args.hide_when_empty, args.cycles)
+        command_demo(app / "Contents/MacOS" / APP_BINARY.name if app.suffix == ".app" else app, args.red_badge, args.hide_when_empty, args.cycles)
+    elif args.command == "clean-registrations":
+        command_clean_registrations()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        unregister_build_apps()

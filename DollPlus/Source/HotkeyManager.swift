@@ -17,6 +17,13 @@ enum HotkeyManager {
     }
 }
 
+#if DEBUG
+// The shortcut belongs to the personal copy in /Applications.
+private let initialToggleConfigWindowShortcut: KeyboardShortcuts.Shortcut? = nil
+#else
+private let initialToggleConfigWindowShortcut = KeyboardShortcuts.Shortcut(.d, modifiers: [.command, .shift])
+#endif
+
 extension KeyboardShortcuts.Name {
-    static let toggleConfigWindow = Self("toggleConfigWindow", initial: .init(.d, modifiers: [.command, .shift]))
+    static let toggleConfigWindow = Self("toggleConfigWindow", initial: initialToggleConfigWindowShortcut)
 }
