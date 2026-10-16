@@ -5,12 +5,14 @@
     python3 -I scripts/e2e.py probe [--prompt]  print the Dock items as JSON
     python3 -I scripts/e2e.py run [NAME ...]    run all or the named scenarios
     python3 -I scripts/e2e.py list              list the scenarios
+    python3 -I scripts/e2e.py demo [--app PATH] cycle a fixture badge for a manual check
 
 The process that runs this script needs the Accessibility permission. Doll Plus
 runs as a child process, so macOS checks the permission of the terminal.
 """
 
 import argparse
+import fcntl
 import json
 import os
 import plistlib
@@ -18,6 +20,7 @@ import signal
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,11 +33,16 @@ PROBE = E2E / "dock-probe"
 STATE_FILE = E2E / "state.json"
 LOGS = E2E / "logs"
 SCREENSHOTS = E2E / "screenshots"
+# `open` makes each ad-hoc signed fixture build its own TCC responsible process,
+# so a control file in ~/Documents causes a prompt for each build.
+CONTROL_DIR = Path.home() / "Library/Caches/com.matikka96.DollPlus.e2e/control"
 LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 POLL = 0.25
 TIMEOUT = 8.0
 STABLE_WINDOW = 5.0
+DEMO_BADGES = ("", "1", "12", "123")
+DEMO_STEP = 3.0
 
 
 @dataclass(frozen=True)
@@ -52,7 +60,7 @@ class Fixture:
 
     @property
     def control_file(self) -> Path:
-        return E2E / "control" / f"{self.bundle_id}.badge"
+        return CONTROL_DIR / f"{self.bundle_id}.badge"
 
     @property
     def dock_title(self) -> str:
@@ -101,7 +109,6 @@ def build_app():
 def build_fixture(fixture: Fixture):
     contents = fixture.app / "Contents"
     (contents / "MacOS").mkdir(parents=True, exist_ok=True)
-    fixture.control_file.parent.mkdir(parents=True, exist_ok=True)
     info = {
         "CFBundleIdentifier": fixture.bundle_id,
         "CFBundleName": fixture.bundle_name,
@@ -205,17 +212,18 @@ def restart_dock():
 
 
 class DollPlus:
-    def __init__(self, scenario: str, fixtures, red_badge: bool):
+    def __init__(self, scenario: str, fixtures, red_badge: bool, binary: Path = APP_BINARY):
         self.scenario = scenario
         self.fixtures = fixtures
         self.red_badge = red_badge
+        self.binary = binary
         self.process = None
 
     def __enter__(self):
         if subprocess.run(["pgrep", "-x", "Doll Plus"], capture_output=True).returncode == 0:
             raise EnvironmentProblem("another Doll Plus process runs. Quit it first")
-        if not APP_BINARY.exists():
-            raise EnvironmentProblem("Doll Plus is not built. Run: python3 -I scripts/e2e.py build")
+        if not self.binary.is_file():
+            raise EnvironmentProblem(f"{self.binary} does not exist. Run python3 -I scripts/e2e.py build in its worktree")
         STATE_FILE.unlink(missing_ok=True)
         LOGS.mkdir(parents=True, exist_ok=True)
         log = open(LOGS / f"{self.scenario}.log", "w")
@@ -232,7 +240,7 @@ class DollPlus:
             "ApplePersistenceIgnoreState": "YES",
             "DollPlusStateFile": str(STATE_FILE),
         }
-        args = [str(APP_BINARY)] + [token for key, value in settings.items() for token in (f"-{key}", value)]
+        args = [str(self.binary)] + [token for key, value in settings.items() for token in (f"-{key}", value)]
         self.process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
         wait_until(lambda: len(self.state().get("apps", [])) == len(self.fixtures),
                    describe=lambda: f"state: {self.state()}")
@@ -444,11 +452,55 @@ def run_scenario(s: Scenario, screenshots: bool) -> str:
     return outcome
 
 
+def run_lock_path() -> Path:
+    common_dir = run(["git", "rev-parse", "--git-common-dir"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    return (ROOT / common_dir).resolve() / "doll-plus-e2e.lock"
+
+
+@contextmanager
+def dock_lock():
+    # All worktrees share one Dock and one set of fixture bundle IDs.
+    with open(run_lock_path(), "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("Another scenario run or demo uses the Dock. Waiting for it to finish.", flush=True)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def command_run(names, screenshots):
     selected = [s for s in SCENARIOS if not names or s.name in names]
     unknown = set(names) - {s.name for s in SCENARIOS}
     if unknown:
         sys.exit(f"unknown scenario: {', '.join(sorted(unknown))}")
+    with dock_lock():
+        return run_selected(selected, screenshots)
+
+
+def command_demo(binary: Path, red_badge: bool, cycles: int):
+    a = FIXTURES["a"]
+    with dock_lock():
+        try:
+            require_trusted()
+            reset_fixtures((a,))
+            with DollPlus("demo", (a,), red_badge, binary):
+                print(f"Doll Plus shows {a.dock_title}. The badge changes every {DEMO_STEP:.0f} s. Press Ctrl-C to stop.", flush=True)
+                for _ in range(cycles):
+                    for badge in DEMO_BADGES:
+                        print(f"badge {badge!r}", flush=True)
+                        set_badge(a, badge)
+                        time.sleep(DEMO_STEP)
+        except KeyboardInterrupt:
+            print("Stopped.")
+        except (CheckFailed, EnvironmentProblem) as error:
+            sys.exit(f"ERROR  {error}")
+        finally:
+            for pid in fixture_pids(a):
+                os.kill(pid, signal.SIGTERM)
+
+
+def run_selected(selected, screenshots):
     try:
         require_trusted()
     except EnvironmentProblem as error:
@@ -473,6 +525,10 @@ def main():
     r.add_argument("names", nargs="*")
     r.add_argument("--screenshots", action="store_true")
     sub.add_parser("list")
+    d = sub.add_parser("demo")
+    d.add_argument("--app", type=Path, default=APP_BINARY, help="Doll Plus.app or its binary, for example the build of a PR worktree")
+    d.add_argument("--red-badge", action="store_true")
+    d.add_argument("--cycles", type=int, default=5)
     args = parser.parse_args()
 
     if args.command == "build":
@@ -487,6 +543,9 @@ def main():
             print(f"{s.name:22} {s.summary}{issue}")
     elif args.command == "run":
         sys.exit(command_run(args.names, args.screenshots))
+    elif args.command == "demo":
+        app = args.app.resolve()
+        command_demo(app / "Contents/MacOS/Doll Plus" if app.suffix == ".app" else app, args.red_badge, args.cycles)
 
 
 if __name__ == "__main__":
