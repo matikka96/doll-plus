@@ -11,6 +11,7 @@ runs as a child process, so macOS checks the permission of the terminal.
 """
 
 import argparse
+import fcntl
 import json
 import os
 import plistlib
@@ -443,11 +444,27 @@ def run_scenario(s: Scenario, screenshots: bool) -> str:
     return outcome
 
 
+def run_lock_path() -> Path:
+    common_dir = run(["git", "rev-parse", "--git-common-dir"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    return (ROOT / common_dir).resolve() / "doll-plus-e2e.lock"
+
+
 def command_run(names, screenshots):
     selected = [s for s in SCENARIOS if not names or s.name in names]
     unknown = set(names) - {s.name for s in SCENARIOS}
     if unknown:
         sys.exit(f"unknown scenario: {', '.join(sorted(unknown))}")
+    # All worktrees share one Dock and one set of fixture bundle IDs.
+    with open(run_lock_path(), "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("Another run of the scenarios is in progress. Waiting for it to finish.", flush=True)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        return run_selected(selected, screenshots)
+
+
+def run_selected(selected, screenshots):
     try:
         require_trusted()
     except EnvironmentProblem as error:
