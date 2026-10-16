@@ -2,55 +2,61 @@ import AppKit
 import Combine
 
 let checkInterval: TimeInterval = 1.0
+let ticksPerFullResolve = 10
 
 public struct MonitorService {
     public static let observerStatus = PassthroughSubject<Bool, Never>()
-    private static var observedAppInfos: [String: ObservedAppInfo] = [:]
+    private static let tracker = DockElementTracker(dock: AXDock())
     private static var timer: Timer?
-    private static var allObserversConfigured = false
-    private static var appCreateObserver: AXObserver!
-    private static var appDestroyObserver: AXObserver!
+    private static var ticksSinceFullResolve = 0
+    private static var observedDockProcessId: pid_t?
+    private static var appCreateObserver: AXObserver?
+    private static var appDestroyObserver: AXObserver?
     private static let onElementCreateCallback = ObserverCallbackInfo {
-        reloadAppElements()
+        tracker.resolveMissingElements()
     }
     private static let onElementDestroyCallback = ObserverCallbackInfo {
-        observedAppInfos.keys.forEach { bundleId in
-            if let appElement = observedAppInfos[bundleId]?.appElement {
-                // The Dock element of an app that quit has no title.
-                if attribute(kAXTitleAttribute, of: appElement) as? String == nil {
-                    observedAppInfos[bundleId]?.onBadgeUpdate(nil)
-                    observedAppInfos[bundleId]?.updateAppElement(nil)
-                }
-            }
-        }
+        tracker.publishBadges()
     }
 
     public static func setupObservers() {
-        timer = Timer.scheduledTimer(withTimeInterval: checkInterval, repeats: true) { timer in
-            if appCreateObserver == nil || appDestroyObserver == nil {
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            workspaceCenter.addObserver(forName: name, object: nil, queue: .main) { notification in
+                let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                if let bundleId = app?.bundleIdentifier {
+                    tracker.resolveElements(for: [bundleId])
+                }
+            }
+        }
+
+        timer = Timer.scheduledTimer(withTimeInterval: checkInterval, repeats: true) { _ in
+            if AXDock.processId != observedDockProcessId || appCreateObserver == nil || appDestroyObserver == nil {
                 setupAxObserversOnDock()
             }
 
-            observedAppInfos.keys.forEach { bundleId in
-                observedAppInfos[bundleId]?.onBadgeUpdate(getBadgeText(bundleId: bundleId))
+            ticksSinceFullResolve += 1
+            if ticksSinceFullResolve >= ticksPerFullResolve {
+                resolveAllElements()
             }
+
+            tracker.publishBadges()
         }
         timer?.fire()
     }
 
     public static func observe(bundleId: String, appName: String, onUpdate: @escaping (String?) -> Void) {
-        let appElement = DockItemMatcher.element(in: dockItems(), bundleId: bundleId, appName: appName)
-        observedAppInfos[bundleId] = ObservedAppInfo(appName: appName, appElement: appElement, onBadgeUpdate: onUpdate)
+        tracker.observe(bundleId: bundleId, appName: appName, onBadgeUpdate: onUpdate)
     }
 
     public static func unObserve(bundleId: String) {
         print("Un observe \(bundleId)")
-        observedAppInfos.removeValue(forKey: bundleId)
+        tracker.unObserve(bundleId: bundleId)
     }
 
     public static func openMonitoredApp(bundleId: String) {
-        if let cachedTargetAppElement = observedAppInfos[bundleId]?.appElement {
-            AXUIElementPerformAction(cachedTargetAppElement, kAXPressAction as CFString)
+        if let element = tracker.element(for: bundleId) {
+            AXUIElementPerformAction(element, kAXPressAction as CFString)
         }
     }
 
@@ -59,136 +65,54 @@ public struct MonitorService {
     }
 
     public static func hasDockElement(bundleId: String) -> Bool {
-        observedAppInfos[bundleId]?.appElement != nil
-    }
-
-    public static func getBadgeText(bundleId: String) -> String? {
-        guard let targetAppElement = observedAppInfos[bundleId]?.appElement else {
-            return nil
-        }
-
-        return attribute("AXStatusLabel", of: targetAppElement) as? String
-    }
-
-    private static func dockItems() -> [DockItem<AXUIElement>] {
-        guard let dockProcessId = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").last?.processIdentifier,
-              let dockChildren = getSubElements(root: AXUIElementCreateApplication(dockProcessId)) else {
-            return []
-        }
-
-        let appItems = dockChildren.filter { attribute(kAXSubroleAttribute, of: $0) as? String == "AXApplicationDockItem" }
-        return appItems.map { child in
-            let url = attribute(kAXURLAttribute, of: child) as? URL
-            return DockItem(element: child,
-                            title: attribute(kAXTitleAttribute, of: child) as? String,
-                            bundleId: url.flatMap { Bundle(url: $0)?.bundleIdentifier })
-        }
-    }
-
-    private static func attribute(_ name: String, of element: AXUIElement) -> AnyObject? {
-        var value: AnyObject?
-        AXUIElementCopyAttributeValue(element, name as CFString, &value)
-        return value
-    }
-
-    private static func getSubElements(root: AXUIElement) -> [AXUIElement]? {
-        var childrenCount: CFIndex = 0
-        var err = AXUIElementGetAttributeValueCount(root, "AXChildren" as CFString, &childrenCount)
-        var result: [AXUIElement] = []
-
-        if case .success = err {
-            var subElements: CFArray?;
-            err = AXUIElementCopyAttributeValues(root, "AXChildren" as CFString, 0, childrenCount, &subElements)
-            if case .success = err {
-                if let children = subElements as? [AXUIElement] {
-                    result.append(contentsOf: children)
-                    children.forEach { element in
-                        if let nestedChildren = getSubElements(root: element) {
-                            result.append(contentsOf: nestedChildren)
-                        }
-                    }
-                }
-
-                return result
-            }
-        }
-
-        print("Error \(err.rawValue)")
-        return nil
+        tracker.element(for: bundleId) != nil
     }
 
     private static func setupAxObserversOnDock() {
-        guard let dockProcessId = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").last?.processIdentifier else {
+        [appCreateObserver, appDestroyObserver].compactMap { $0 }.forEach { observer in
+            CFRunLoopRemoveSource(RunLoop.current.getCFRunLoop(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        }
+
+        observedDockProcessId = AXDock.processId
+        guard let dockProcessId = observedDockProcessId else {
+            appCreateObserver = nil
+            appDestroyObserver = nil
             return
         }
 
-        AXObserverCreateWithInfoCallback(dockProcessId, { (observer, element, notification, userData, refCon) in
-            if let refCon = refCon {
-                let callbackInfo = Unmanaged<ObserverCallbackInfo>.fromOpaque(refCon).takeUnretainedValue()
-                callbackInfo.callback()
-            }
-        }, &appCreateObserver)
-
-        AXObserverCreateWithInfoCallback(dockProcessId, { (observer, element, notification, userData, refCon) in
-            if let refCon = refCon {
-                let callbackInfo = Unmanaged<ObserverCallbackInfo>.fromOpaque(refCon).takeUnretainedValue()
-                callbackInfo.callback()
-            }
-        }, &appDestroyObserver)
-
-        if let observer = appCreateObserver {
-            let callbackPTR = UnsafeMutableRawPointer(Unmanaged.passUnretained(onElementCreateCallback).toOpaque())
-
-            if AXObserverAddNotification(observer, AXUIElementCreateApplication(dockProcessId), kAXCreatedNotification as CFString, callbackPTR) == .success {
-                print("Successfully added element created Notification!")
-            } else {
-                appCreateObserver = nil
-            }
-
-            CFRunLoopAddSource(RunLoop.current.getCFRunLoop(), AXObserverGetRunLoopSource(observer), CFRunLoopMode.defaultMode)
-        }
-
-        if let observer = appDestroyObserver {
-            let callbackPTR = UnsafeMutableRawPointer(Unmanaged.passUnretained(onElementDestroyCallback).toOpaque())
-
-            if AXObserverAddNotification(observer, AXUIElementCreateApplication(dockProcessId), kAXUIElementDestroyedNotification as CFString, callbackPTR) == .success {
-                print("Successfully added element destroyed Notification!")
-            } else {
-                appDestroyObserver = nil
-            }
-
-            CFRunLoopAddSource(RunLoop.current.getCFRunLoop(), AXObserverGetRunLoopSource(observer), CFRunLoopMode.defaultMode)
-        }
+        appCreateObserver = makeObserver(dockProcessId: dockProcessId, notification: kAXCreatedNotification, callback: onElementCreateCallback)
+        appDestroyObserver = makeObserver(dockProcessId: dockProcessId, notification: kAXUIElementDestroyedNotification, callback: onElementDestroyCallback)
 
         observerStatus.send(appCreateObserver != nil)
         if appCreateObserver != nil && appDestroyObserver != nil {
-            reloadAppElements()
+            resolveAllElements()
         }
     }
 
-    private static func reloadAppElements() {
-        let missingBundleIds = observedAppInfos.filter { $0.value.appElement == nil }.keys
-        guard !missingBundleIds.isEmpty else {
-            return
-        }
+    private static func resolveAllElements() {
+        tracker.resolveAllElements()
+        ticksSinceFullResolve = 0
+    }
 
-        let items = dockItems()
-        missingBundleIds.forEach { bundleId in
-            guard let appName = observedAppInfos[bundleId]?.appName else {
-                return
+    private static func makeObserver(dockProcessId: pid_t, notification: String, callback: ObserverCallbackInfo) -> AXObserver? {
+        var observer: AXObserver?
+        AXObserverCreateWithInfoCallback(dockProcessId, { _, _, _, _, refCon in
+            if let refCon {
+                Unmanaged<ObserverCallbackInfo>.fromOpaque(refCon).takeUnretainedValue().callback()
             }
-            observedAppInfos[bundleId]?.updateAppElement(DockItemMatcher.element(in: items, bundleId: bundleId, appName: appName))
+        }, &observer)
+
+        guard let observer else {
+            return nil
         }
-    }
-}
 
-private struct ObservedAppInfo {
-    let appName: String
-    var appElement: AXUIElement?
-    let onBadgeUpdate: (String?) -> Void
+        let callbackPointer = Unmanaged.passUnretained(callback).toOpaque()
+        guard AXObserverAddNotification(observer, AXUIElementCreateApplication(dockProcessId), notification as CFString, callbackPointer) == .success else {
+            return nil
+        }
 
-    mutating func updateAppElement(_ element: AXUIElement?) {
-        appElement = element
+        CFRunLoopAddSource(RunLoop.current.getCFRunLoop(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        return observer
     }
 }
 
