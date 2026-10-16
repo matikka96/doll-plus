@@ -49,7 +49,8 @@ private extension StatusBarController {
             "visible": statusItem.isVisible,
             "title": button?.title ?? "",
             "length": statusItem.length,
-            "fittingWidth": button?.fittingSize.width ?? 0,
+            "neededWidth": button?.cell?.cellSize.width ?? 0,
+            "width": button?.bounds.width ?? 0,
             "redrawCount": redrawCount,
             "frame": [frame.minX, frame.minY, frame.width, frame.height],
         ]

@@ -3,6 +3,7 @@ import Monitor
 import SwiftUI
 
 let defaultIconSize: CGFloat = 20
+let defaultIconFrameSize = NSSize(width: defaultIconSize, height: defaultIconSize)
 let defaultIcon = #imageLiteral(resourceName: "DefaultStatusBarIcon")
 
 class StatusBarController {
@@ -11,6 +12,7 @@ class StatusBarController {
     private(set) var latestBadgeText = ""
     private(set) var redrawCount = 0
     private var latestMessageCount = 0
+    private var drawnState: DrawnState?
 
     private var giantBadgeController = GiantBadgeViewController()
     private var giantBadgePanel = NSPanel(contentRect: NSRect(origin: .zero, size: defaultWindowSize),
@@ -36,7 +38,7 @@ class StatusBarController {
         if let statusBarButton = statusItem.button {
             statusBarButton.sendAction(on: [.leftMouseUp, .rightMouseUp])
             statusBarButton.image = icon ?? defaultIcon
-            statusBarButton.image?.size = NSSize(width: defaultIconSize, height: defaultIconSize)
+            statusBarButton.image?.size = defaultIconFrameSize
             statusBarButton.image?.isTemplate = false
             statusBarButton.imagePosition = .imageLeft
             statusBarButton.action = #selector(onIconClicked(sender:))
@@ -108,7 +110,9 @@ class StatusBarController {
                 self?.updateBadgeText(badge)
             }
 
-            self?.repositionGiantBadge()
+            if self?.giantBadgePanel.isVisible == true {
+                self?.repositionGiantBadge()
+            }
         }
     }
 
@@ -128,50 +132,41 @@ class StatusBarController {
     }
 
     func hideStatusBar() {
-        statusItem.isVisible = false
+        if statusItem.isVisible {
+            statusItem.isVisible = false
+        }
     }
 
     func updateBadgeText(_ text: String?, force: Bool = false) {
-        statusItem.isVisible = true
-
-        guard !AppSettings.showOnlyAppIcon else {
-            latestBadgeText = text ?? ""
-            refreshAppIcon()
-            return
+        if !statusItem.isVisible {
+            statusItem.isVisible = true
         }
 
-        guard force || statusItem.button?.title != text else {
-            return
-        }
-
-        let textWidth = (text ?? "")
-            .width(withConstrainedHeight: defaultIconSize, font: .systemFont(ofSize: 14))
-        statusItem.length = defaultIconSize + textWidth
-
-        // New notification comes in
         let newText = text ?? ""
+        let state = DrawnState(text: newText,
+                               showOnlyAppIcon: AppSettings.showOnlyAppIcon,
+                               showAsRedBadge: AppSettings.showAsRedBadge,
+                               grayOutWhenEmpty: AppSettings.grayoutIconWhenNothingComing)
+        guard force || state != drawnState, let monitoredAppIcon else {
+            return
+        }
+        drawnState = state
+
+        let showsRedBadge = state.showAsRedBadge && !state.showOnlyAppIcon
+        let showsText = !state.showAsRedBadge && !state.showOnlyAppIcon && !newText.isEmpty
+        let icon = showsRedBadge ? monitoredAppIcon.addBadgeToImage(drawText: newText) : monitoredAppIcon
+        let adjustedIcon = (newText.isEmpty && state.grayOutWhenEmpty) ? (icon.grayOut() ?? icon) : icon
+        updateBadgeIcon(icon: adjustedIcon, size: showsRedBadge ? nil : defaultIconFrameSize)
+        statusItem.button?.title = showsText ? newText : ""
+        statusItem.length = showsText ? NSStatusItem.variableLength : defaultIconSize
+
+        guard !state.showOnlyAppIcon else {
+            latestBadgeText = newText
+            return
+        }
 
         if newText.isEmpty {
             hideGiantBadge()
-        }
-
-        guard let monitoredAppIcon = monitoredAppIcon else {
-            return
-        }
-
-        if AppSettings.showAsRedBadge {
-            let defaultIcon = monitoredAppIcon.addBadgeToImage(drawText: newText)
-            let adjustedIcon = (newText.isEmpty && AppSettings.grayoutIconWhenNothingComing) ? (defaultIcon.grayOut() ?? defaultIcon) : defaultIcon
-            updateBadgeIcon(icon: adjustedIcon)
-            statusItem.length = defaultIconSize
-            statusItem.button?.title = ""
-        } else {
-            let defaultIcon = monitoredAppIcon
-            let adjustedIcon = (newText.isEmpty && AppSettings.grayoutIconWhenNothingComing) ? (defaultIcon.grayOut() ?? defaultIcon) : defaultIcon
-            updateBadgeIcon(icon: adjustedIcon)
-            statusItem.length = defaultIconSize + textWidth
-            updateBadgeIcon(icon: adjustedIcon, size: CGSize(width: defaultIconSize, height: defaultIconSize))
-            statusItem.button?.title = newText
         }
 
         let newMessageCount = Int(newText) ?? 0
@@ -197,19 +192,7 @@ class StatusBarController {
     }
 
     func refreshDisplayMode() {
-        if AppSettings.showOnlyAppIcon {
-            refreshAppIcon()
-        } else {
-            updateBadgeText(latestBadgeText, force: true)
-        }
-    }
-
-    func refreshAppIcon() {
-        guard let monitoredAppIcon else { return }
-        let adjustedIcon = (latestBadgeText.isEmpty && AppSettings.grayoutIconWhenNothingComing) ? (monitoredAppIcon.grayOut() ?? monitoredAppIcon) : monitoredAppIcon
-        statusItem.length = defaultIconSize
-        statusItem.button?.title = ""
-        updateBadgeIcon(icon: adjustedIcon, size: CGSize(width: defaultIconSize, height: defaultIconSize))
+        updateBadgeText(latestBadgeText, force: true)
     }
 
     func updateBadgeIcon(icon: NSImage?, size: CGSize? = nil) {
@@ -302,6 +285,13 @@ class StatusBarController {
 
         return notificationPopover
     }
+}
+
+private struct DrawnState: Equatable {
+    let text: String
+    let showOnlyAppIcon: Bool
+    let showAsRedBadge: Bool
+    let grayOutWhenEmpty: Bool
 }
 
 extension String {
