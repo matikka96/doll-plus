@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end scenarios for Doll Plus.
 
-    python3 -I scripts/e2e.py build             build Doll Plus, the fixtures and the Dock probe
+    python3 -I scripts/e2e.py build             build Doll Plus, the fixtures, the Dock probe and the config driver
     python3 -I scripts/e2e.py probe [--prompt]  print the Dock items as JSON
     python3 -I scripts/e2e.py run [NAME ...]    run all or the named scenarios
     python3 -I scripts/e2e.py list              list the scenarios
@@ -16,6 +16,7 @@ import fcntl
 import json
 import os
 import plistlib
+import shutil
 import signal
 import subprocess
 import sys
@@ -28,8 +29,13 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build"
 E2E = BUILD / "e2e"
 DERIVED_DATA = BUILD / "DerivedData"
-APP_BINARY = DERIVED_DATA / "Build/Products/Debug/Doll Plus.app/Contents/MacOS/Doll Plus"
+BUILT_APP = DERIVED_DATA / "Build/Products/Debug/Doll Plus.app"
+# Its own bundle ID gives the copy its own UserDefaults domain, apart from the stored settings of the user.
+APP = E2E / "Doll Plus.app"
+APP_BUNDLE_ID = "com.matikka96.DollPlus.e2e"
+APP_BINARY = APP / "Contents/MacOS/Doll Plus"
 PROBE = E2E / "dock-probe"
+CONFIG_DRIVER = E2E / "config-driver"
 STATE_FILE = E2E / "state.json"
 LOGS = E2E / "logs"
 SCREENSHOTS = E2E / "screenshots"
@@ -41,6 +47,7 @@ LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/Launc
 POLL = 0.25
 TIMEOUT = 8.0
 STABLE_WINDOW = 5.0
+RENDER_SETTLE = 1.0
 DEMO_BADGES = ("", "1", "12", "123")
 DEMO_STEP = 3.0
 
@@ -53,6 +60,7 @@ class Fixture:
     folder_name: str
     display_name: str | None = None
     localized_display_name: str | None = None
+    dock_icon: bool = True
 
     @property
     def app(self) -> Path:
@@ -73,6 +81,7 @@ FIXTURES = {
     "b": Fixture("b", "com.matikka96.DollPlus.fixture.b", "DollFixtureB", "Doll Fixture Display", "Doll Fixture Display"),
     "c": Fixture("c", "com.matikka96.DollPlus.fixture.c", "DollFixtureC", "DollFixtureC",
                  localized_display_name="Doll Fixture Localized"),
+    "d": Fixture("d", "com.matikka96.DollPlus.fixture.d", "DollFixtureD", "DollFixtureD", dock_icon=False),
 }
 
 
@@ -88,7 +97,7 @@ def run(cmd, **kwargs):
     return subprocess.run(cmd, check=True, **kwargs)
 
 
-def wait_until(condition, timeout=TIMEOUT, describe=lambda: ""):
+def wait_until(condition, timeout=TIMEOUT, describe=lambda: "", what=None):
     deadline = time.monotonic() + timeout
     while True:
         result = condition()
@@ -96,7 +105,8 @@ def wait_until(condition, timeout=TIMEOUT, describe=lambda: ""):
             return result
         if time.monotonic() > deadline:
             detail = describe()
-            raise CheckFailed(f"timed out after {timeout:.0f} s" + (f". {detail}" if detail else ""))
+            message = f"timed out after {timeout:.0f} s" + (f". {detail}" if detail else "")
+            raise CheckFailed(f"{what}: {message}" if what else message)
         time.sleep(POLL)
 
 
@@ -104,6 +114,15 @@ def wait_until(condition, timeout=TIMEOUT, describe=lambda: ""):
 def build_app():
     run(["xcodebuild", "-project", str(ROOT / "DollPlus.xcodeproj"), "-scheme", "DollPlus",
          "-configuration", "Debug", "-destination", f"platform=macOS,arch={os.uname().machine}", "-derivedDataPath", str(DERIVED_DATA), "-quiet", "build"])
+    shutil.rmtree(APP, ignore_errors=True)
+    shutil.copytree(BUILT_APP, APP, symlinks=True)
+    info_plist = APP / "Contents/Info.plist"
+    with open(info_plist, "rb") as f:
+        info = plistlib.load(f)
+    info["CFBundleIdentifier"] = APP_BUNDLE_ID
+    with open(info_plist, "wb") as f:
+        plistlib.dump(info, f)
+    run(["codesign", "--force", "--deep", "--sign", "-", str(APP)], stderr=subprocess.DEVNULL)
 
 
 def build_fixture(fixture: Fixture):
@@ -120,6 +139,8 @@ def build_fixture(fixture: Fixture):
         "NSPrincipalClass": "NSApplication",
         "DollFixtureControlFile": str(fixture.control_file),
     }
+    if not fixture.dock_icon:
+        info["LSUIElement"] = True
     if fixture.display_name:
         info["CFBundleDisplayName"] = fixture.display_name
     if fixture.localized_display_name:
@@ -137,23 +158,23 @@ def build_fixture(fixture: Fixture):
     run([LSREGISTER, "-f", str(fixture.app)])
 
 
-def build_probe():
+def build_helpers():
     E2E.mkdir(parents=True, exist_ok=True)
     run(["swiftc", "-O", "-o", str(PROBE), str(ROOT / "scripts/e2e/DockProbe.swift")])
+    run(["swiftc", "-O", "-o", str(CONFIG_DRIVER), str(ROOT / "scripts/e2e/ConfigDriver.swift")])
 
 
 def build_all(skip_app=False):
     if not skip_app:
         build_app()
-    build_probe()
+    build_helpers()
     for fixture in FIXTURES.values():
         build_fixture(fixture)
 
 
 
-def probe(prompt=False):
-    args = [str(PROBE)] + (["--prompt"] if prompt else [])
-    result = subprocess.run(args, capture_output=True, text=True)
+def probe(*args):
+    result = subprocess.run([str(PROBE), *args], capture_output=True, text=True)
     return json.loads(result.stdout)
 
 
@@ -182,6 +203,27 @@ def wait_dock_label(fixture: Fixture, text: str):
         raise EnvironmentProblem(f"the Dock did not show the badge {text!r} for {fixture.dock_title}: {error}")
 
 
+def app_state(fixture: Fixture):
+    return probe("--app-state", fixture.bundle_id)
+
+
+def wait_app_state(fixture: Fixture, condition, what: str):
+    try:
+        wait_until(lambda: condition(app_state(fixture)), describe=lambda: f"Last state: {app_state(fixture)}")
+    except CheckFailed as error:
+        raise CheckFailed(f"{fixture.dock_title} did not become {what}: {error}")
+
+
+def deactivate_fixture(fixture: Fixture):
+    # macOS refuses to hide an accessory app, so another fixture takes the activation.
+    other = next(f for f in FIXTURES.values() if f != fixture and f.dock_icon)
+    run(["open", str(other.app)])
+    try:
+        wait_app_state(fixture, lambda s: not s["active"], "inactive")
+    except CheckFailed as error:
+        raise EnvironmentProblem(str(error))
+
+
 def fixture_pids(fixture: Fixture):
     result = subprocess.run(["pgrep", "-x", fixture.bundle_name], capture_output=True, text=True)
     return [int(pid) for pid in result.stdout.split()]
@@ -190,9 +232,10 @@ def fixture_pids(fixture: Fixture):
 def launch_fixture(fixture: Fixture):
     run(["open", str(fixture.app)])
     try:
-        wait_until(lambda: dock_item(fixture))
+        wait_until(lambda: dock_item(fixture) if fixture.dock_icon else fixture_pids(fixture))
     except CheckFailed:
-        raise EnvironmentProblem(f"{fixture.dock_title} did not appear in the Dock")
+        raise EnvironmentProblem(f"{fixture.dock_title} did not appear in the Dock" if fixture.dock_icon
+                                 else f"{fixture.dock_title} did not start")
 
 
 def quit_fixture(fixture: Fixture):
@@ -242,8 +285,12 @@ class DollPlus:
         }
         args = [str(self.binary)] + [token for key, value in settings.items() for token in (f"-{key}", value)]
         self.process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
-        wait_until(lambda: len(self.state().get("apps", [])) == len(self.fixtures),
-                   describe=lambda: f"state: {self.state()}")
+        try:
+            wait_until(lambda: len(self.state().get("apps", [])) == len(set(self.fixtures)),
+                       describe=lambda: f"state: {self.state()}")
+        except BaseException:
+            self.__exit__()
+            raise
         return self
 
     def __exit__(self, *exc):
@@ -262,19 +309,46 @@ class DollPlus:
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
+    def _config(self, *args):
+        result = subprocess.run([str(CONFIG_DRIVER), str(self.process.pid), *args], capture_output=True, text=True)
+        try:
+            output = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            raise CheckFailed(f"the config driver printed no JSON: {result.stdout}{result.stderr}")
+        if result.returncode != 0:
+            raise CheckFailed(f"config window: {output.get('error')}")
+        return output
+
+    def config_rows(self):
+        return self._config("rows")
+
+    def config_buttons(self):
+        return self._config("buttons")
+
+    def open_row(self, name: str):
+        self._config("open", name)
+
+    def toggle_setting(self, label: str):
+        self._config("toggle", label)
+
+    def remove_row(self, name: str):
+        self._config("remove", name)
+
     def app(self, fixture: Fixture):
         apps = self.state().get("apps", [])
         return next((a for a in apps if a["bundleId"] == fixture.bundle_id), None)
 
     def wait_app(self, fixture: Fixture, condition, what: str, timeout=TIMEOUT):
-        try:
-            return wait_until(lambda: (a := self.app(fixture)) is not None and condition(a) and a, timeout=timeout)
-        except CheckFailed as error:
-            raise CheckFailed(f"{what}: {error}. Last state: {self.app(fixture)}")
+        return wait_until(lambda: (a := self.app(fixture)) is not None and condition(a) and a, timeout=timeout,
+                          describe=lambda: f"Last state: {self.app(fixture)}", what=what)
 
     def wait_badge(self, fixture: Fixture, text: str, timeout=TIMEOUT):
         return self.wait_app(fixture, lambda a: a["badge"] == text,
                              f"Doll Plus did not show the badge {text!r}", timeout)
+
+    def click_status_item(self):
+        if not probe("--press-status-item", str(self.state()["pid"])).get("pressed"):
+            raise CheckFailed("the Accessibility press on the status item failed")
 
     def screenshot(self, fixture: Fixture, label: str):
         state = self.state()
@@ -342,15 +416,16 @@ def clear_badge(doll, a, screenshots):
         raise CheckFailed(f"the status item still has a title: {app}")
 
 
-@scenario("A two-digit badge fits in the status item")
-def two_digit_fit(doll, a, screenshots):
-    set_badge(a, "12")
-    wait_dock_label(a, "12")
-    app = doll.wait_badge(a, "12")
-    if screenshots:
-        doll.screenshot(a, "two-digits")
-    if app["fittingWidth"] > app["length"] + 0.5:
-        raise CheckFailed(f"the text needs {app['fittingWidth']} pt, the item has {app['length']} pt")
+@scenario("The status item grows with the badge: 1, 12, 123")
+def badge_growth(doll, a, screenshots):
+    for badge in ("1", "12", "123"):
+        set_badge(a, badge)
+        wait_dock_label(a, badge)
+        app = doll.wait_badge(a, badge)
+        if screenshots:
+            doll.screenshot(a, f"badge-{badge}")
+        if app["neededWidth"] > app["width"] + 0.5:
+            raise CheckFailed(f"the badge {badge!r} needs {app['neededWidth']:.1f} pt, the button has {app['width']:.1f} pt")
 
 
 def assert_dock_title_match(doll, fixture, badge):
@@ -396,6 +471,23 @@ def app_relaunch(doll, a, screenshots):
     doll.wait_badge(a, "8")
 
 
+@scenario("A click shows the app, a second click hides it")
+def click_toggle(doll, a, screenshots):
+    deactivate_fixture(a)
+    doll.click_status_item()
+    wait_app_state(a, lambda s: s["active"] and not s["hidden"], "active")
+    doll.click_status_item()
+    wait_app_state(a, lambda s: s["hidden"], "hidden")
+
+
+# macOS refuses to hide an accessory app, so only the show half applies.
+@scenario("A click shows an app with no Dock icon", fixtures=("d",))
+def click_show_no_dock_icon(doll, d, screenshots):
+    deactivate_fixture(d)
+    doll.click_status_item()
+    wait_app_state(d, lambda s: s["active"], "active")
+
+
 def assert_no_redraw(doll, fixture, badge):
     set_badge(fixture, badge)
     wait_dock_label(fixture, badge)
@@ -408,15 +500,59 @@ def assert_no_redraw(doll, fixture, badge):
         raise CheckFailed(f"{after - before} redraws in {STABLE_WINDOW:.0f} s with no badge change")
 
 
-@scenario("No redraw while the badge stays empty", known_issue=6)
+@scenario("No redraw while the badge stays empty")
 def no_redraw_empty(doll, a, screenshots):
     assert_no_redraw(doll, a, "")
 
 
-@scenario("No redraw while a red badge stays the same", known_issue=6, red_badge=True)
+@scenario("No redraw while a red badge stays the same", red_badge=True)
 def no_redraw_red_badge(doll, a, screenshots):
     assert_no_redraw(doll, a, "3")
 
+
+def assert_selected_rows(doll, names):
+    wait_until(lambda: [r["name"] for r in doll.config_rows() if r["selected"]] == names,
+               describe=lambda: f"rows: {doll.config_rows()}", what=f"the selected rows are not {names}")
+
+
+@scenario("A config row stays selected after a setting changes", fixtures=("a", "b"))
+def row_keeps_selection(doll, a, b, screenshots):
+    doll.open_row(a.dock_title)
+    assert_selected_rows(doll, [a.dock_title])
+    doll.toggle_setting("Hide icon if monitored app isn't running")
+    time.sleep(RENDER_SETTLE)
+    assert_selected_rows(doll, [a.dock_title])
+
+
+@scenario("The Remove item of a config row stops monitoring the app", fixtures=("a", "b"))
+def remove_from_list(doll, a, b, screenshots):
+    doll.remove_row(b.dock_title)
+    wait_until(lambda: [app["bundleId"] for app in doll.state().get("apps", [])] == [a.bundle_id],
+               describe=lambda: f"state: {doll.state().get('apps')}", what=f"Doll Plus still monitors {b.dock_title}")
+    rows = [r["name"] for r in doll.config_rows()]
+    if rows != [a.dock_title]:
+        raise CheckFailed(f"the config list shows {rows}, expected {[a.dock_title]}")
+
+
+def detail_pane_open(doll, fixture):
+    return f'Stop monitoring - "{fixture.dock_title}"' in doll.config_buttons()
+
+
+@scenario("Removing the open config row closes its detail pane", fixtures=("a", "b"))
+def remove_open_row(doll, a, b, screenshots):
+    doll.open_row(b.dock_title)
+    wait_until(lambda: detail_pane_open(doll, b), describe=lambda: f"rows: {doll.config_rows()}, buttons: {doll.config_buttons()}",
+               what=f"the detail pane of {b.dock_title} did not open")
+    doll.remove_row(b.dock_title)
+    wait_until(lambda: not detail_pane_open(doll, b), describe=lambda: f"buttons: {doll.config_buttons()}",
+               what=f"the detail pane of the removed row {b.dock_title} stays open")
+
+
+@scenario("A bundle ID saved twice gives one config row", fixtures=("a", "a"))
+def duplicate_saved_app(doll, a, _, screenshots):
+    rows = [r["name"] for r in doll.config_rows()]
+    if rows != [a.dock_title]:
+        raise CheckFailed(f"the config list shows {rows}, expected {[a.dock_title]}")
 
 
 def reset_fixtures(fixtures):
@@ -517,7 +653,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("build")
-    build.add_argument("--skip-app", action="store_true", help="build only the fixtures and the probe")
+    build.add_argument("--skip-app", action="store_true", help="build only the fixtures and the helpers")
     p = sub.add_parser("probe")
     p.add_argument("--prompt", action="store_true", help="ask macOS to show the Accessibility prompt")
     r = sub.add_parser("run")
@@ -534,8 +670,8 @@ def main():
         build_all(args.skip_app)
     elif args.command == "probe":
         if not PROBE.exists():
-            build_probe()
-        print(json.dumps(probe(args.prompt), indent=2))
+            build_helpers()
+        print(json.dumps(probe("--prompt") if args.prompt else probe(), indent=2))
     elif args.command == "list":
         for s in SCENARIOS:
             issue = f"  [known issue #{s.known_issue}]" if s.known_issue else ""

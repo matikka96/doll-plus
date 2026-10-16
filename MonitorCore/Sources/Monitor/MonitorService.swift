@@ -2,6 +2,7 @@ import AppKit
 import Combine
 
 let checkInterval: TimeInterval = 1.0
+let checkTolerance: TimeInterval = 0.25
 let ticksPerFullResolve = 10
 
 public struct MonitorService {
@@ -42,6 +43,7 @@ public struct MonitorService {
 
             tracker.publishBadges()
         }
+        timer?.tolerance = checkTolerance
         timer?.fire()
     }
 
@@ -54,10 +56,25 @@ public struct MonitorService {
         tracker.unObserve(bundleId: bundleId)
     }
 
-    public static func openMonitoredApp(bundleId: String) {
-        if let element = tracker.element(for: bundleId) {
-            AXUIElementPerformAction(element, kAXPressAction as CFString)
+    public static func toggleMonitoredApp(bundleId: String) {
+        let instances = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+        if let activeInstance = instances.first(where: \.isActive) {
+            activeInstance.hide()
+        } else {
+            showMonitoredApp(bundleId: bundleId)
         }
+    }
+
+    public static func showMonitoredApp(bundleId: String) {
+        // Launch Services can start a second instance from another path, so prefer the running copy.
+        let runningURL = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first?.bundleURL
+        guard let url = runningURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
+            return
+        }
+        // Unlike activate(), an open sends the reopen event of a Dock click, so an app with no window shows one.
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration)
     }
 
     public static func isMonitoredAppRunning(bundleIdentifier: String) -> Bool {
