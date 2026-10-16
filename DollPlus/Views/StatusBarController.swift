@@ -52,7 +52,7 @@ class StatusBarController {
         giantBadgePanel.isOpaque = false
         giantBadgePanel.hasShadow = false
         giantBadgePanel.backgroundColor = NSColor.clear
-        // The 1000×800 panel covers the status item, so its tooltip misses the mouse-exit event.
+        // The giant badge panel covers the status item, so the tooltip misses the mouse-exit event.
         giantBadgePanel.ignoresMouseEvents = true
     }
 
@@ -68,6 +68,7 @@ class StatusBarController {
 
     @objc func onIconClicked(sender: AnyObject) {
         hideGiantBadge()
+        hideNotificationPanel()
 
         let noAppSelected = statusItem.button?.image == defaultIcon
         let isOptionKeyHolding = NSEvent.modifierFlags.contains(.option)
@@ -294,13 +295,13 @@ class StatusBarController {
     }
 }
 
-// Never key, so the full-screen app keeps keyboard focus.
+// Keeps keyboard focus on the full-screen app.
 private final class NonKeyPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
-// The panel never becomes key, so the first click must reach the view.
+// In a window that is not key, AppKit gives the first click to the view only with acceptsFirstMouse.
 private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
