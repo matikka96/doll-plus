@@ -6,7 +6,7 @@ import Utils
 let defaultWindowSize = NSSize(width: 900, height: 600)
 let SETTING_MONITORED_APP_IDS = "SETTING_MONITORED_APP_IDS"
 let configWindowFrameName = "DollPlusConfigWindow"
-let configWindowContentSize = NSSize(width: 520, height: 740)
+let configWindowWidth: CGFloat = 520
 
 class MonitorEngine {
 
@@ -94,9 +94,11 @@ class MonitorEngine {
     func showConfigWindow() {
         // New content reads the settings again, for example a login item that changed in System Settings.
         if !configWindow.isVisible {
-            let frame = configWindow.frame
-            configWindow.contentViewController = NSHostingController(rootView: ConfigView())
-            configWindow.setFrame(frame, display: false)
+            let topLeft = NSPoint(x: configWindow.frame.minX, y: configWindow.frame.maxY)
+            let content = NSHostingController(rootView: ConfigView())
+            content.sizingOptions = .preferredContentSize
+            configWindow.contentViewController = content
+            configWindow.setFrameTopLeftPoint(topLeft)
         }
         NSApp.activate(ignoringOtherApps: true)
         configWindow.makeKeyAndOrderFront(nil)
@@ -104,16 +106,11 @@ class MonitorEngine {
     }
 
     private func makeConfigWindow() -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: configWindowContentSize), styleMask: [.closable, .titled], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: configWindowWidth, height: 600), styleMask: [.closable, .titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = Utils.appName
         window.isOpaque = true
-        if window.setFrameUsingName(configWindowFrameName) {
-            // A saved frame can come from an older, larger window.
-            let topLeft = NSPoint(x: window.frame.minX, y: window.frame.maxY)
-            window.setContentSize(configWindowContentSize)
-            window.setFrameTopLeftPoint(topLeft)
-        } else {
+        if !window.setFrameUsingName(configWindowFrameName) {
             window.center()
         }
         window.setFrameAutosaveName(configWindowFrameName)

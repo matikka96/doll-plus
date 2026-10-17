@@ -5,6 +5,8 @@ import Utils
 import KeyboardShortcuts
 
 private let accessibilitySettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+// Five rows. A longer list scrolls, so the window fits on a laptop screen.
+private let monitoredAppListMaxHeight: CGFloat = 170
 
 private enum ConfigSheet: Identifiable {
     case add
@@ -110,7 +112,9 @@ struct ConfigView: View {
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
-        .frame(width: configWindowContentSize.width, height: configWindowContentSize.height)
+        .scrollDisabled(true)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: configWindowWidth)
         .sheet(item: $sheet, onDismiss: { iconRevision += 1 }) { sheet in
             switch sheet {
             case .add:
@@ -181,7 +185,9 @@ struct ConfigView: View {
                 }
             }
             .onDeleteCommand(perform: removeSelection)
-            .scrollDisabled(true)
+            // The Form disables the scroll of its content.
+            .scrollDisabled(false)
+            .frame(maxHeight: monitoredAppListMaxHeight)
             .fixedSize(horizontal: false, vertical: true)
         }
     }
