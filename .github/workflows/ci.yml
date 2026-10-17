@@ -17,6 +17,25 @@ jobs:
           -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath build/DerivedData
           CODE_SIGNING_ALLOWED=NO build
 
+      - name: Build the Release app
+        run: >
+          xcodebuild -project DollPlus.xcodeproj -scheme DollPlus -configuration Release
+          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath build/DerivedData
+          CODE_SIGNING_ALLOWED=NO build
+
+      - name: Check the identity of each product
+        run: |
+          check() {
+            info="build/DerivedData/Build/Products/$1/$2.app/Contents/Info.plist"
+            for pair in "CFBundleIdentifier=$3" "CFBundleName=$2" "CFBundleDisplayName=$2"; do
+              key="${pair%%=*}" expected="${pair#*=}"
+              actual="$(plutil -extract "$key" raw "$info")"
+              [ "$actual" = "$expected" ] || { echo "$info: $key is '$actual', expected '$expected'"; exit 1; }
+            done
+          }
+          check Debug "Doll Plus Dev" com.matikka96.DollPlus.dev
+          check Release "Doll Plus" com.matikka96.DollPlus
+
       - name: Test MonitorCore
         run: swift test --package-path MonitorCore
 

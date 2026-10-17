@@ -371,7 +371,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = DollPlus/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Doll Plus";
+				INFOPLIST_KEY_CFBundleDisplayName = "Doll Plus Dev";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPrincipalClass = "$(PRODUCT_MODULE_NAME).DollApplication";
@@ -381,9 +381,9 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 0.0.9.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.matikka96.DollPlus;
+				PRODUCT_BUNDLE_IDENTIFIER = com.matikka96.DollPlus.dev;
 				PRODUCT_MODULE_NAME = DollPlus;
-				PRODUCT_NAME = "Doll Plus";
+				PRODUCT_NAME = "Doll Plus Dev";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};

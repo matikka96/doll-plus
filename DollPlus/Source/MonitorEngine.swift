@@ -106,6 +106,9 @@ class MonitorEngine {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: defaultWindowSize), styleMask: [.closable, .titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = NSLocalizedString("Doll - badge watcher", comment: "")
+        #if DEBUG
+        window.title += " (Dev)"
+        #endif
         window.isOpaque = true
         if !window.setFrameUsingName(configWindowFrameName) {
             window.center()
