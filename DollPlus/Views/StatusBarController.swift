@@ -181,12 +181,10 @@ class StatusBarController {
             }
 
             let frontmostAppIsMonitoredApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == monitoredApp?.bundleId
-            if !frontmostAppIsMonitoredApp, AppSettings.isGiantBadgeEnabled(for: monitoredApp?.bundleId ?? "") {
-                if newMessageCount >= latestMessageCount {
-                    tryShowGiantBadge(text)
-                } else {
-                    hideGiantBadge()
-                }
+            let showsGiantBadge = !frontmostAppIsMonitoredApp && AppSettings.isGiantBadgeEnabled(for: monitoredApp?.bundleId ?? "")
+                && !newText.isEmpty && newMessageCount >= latestMessageCount
+            if showsGiantBadge {
+                tryShowGiantBadge(text)
             } else {
                 hideGiantBadge()
             }
