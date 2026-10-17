@@ -38,6 +38,10 @@ enum Storage {
         }
     }
 
+    static func hasCustomizedAppIcon(for bundleId: String) -> Bool {
+        FileManager.default.fileExists(atPath: iconPath(for: bundleId).path)
+    }
+
     static func removeCustomizedAppIcon(for bundleId: String) {
         let imageURL = iconPath(for: bundleId)
 

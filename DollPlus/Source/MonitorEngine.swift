@@ -6,6 +6,7 @@ import Utils
 let defaultWindowSize = NSSize(width: 900, height: 600)
 let SETTING_MONITORED_APP_IDS = "SETTING_MONITORED_APP_IDS"
 let configWindowFrameName = "DollPlusConfigWindow"
+let configWindowWidth: CGFloat = 520
 
 class MonitorEngine {
 
@@ -56,26 +57,26 @@ class MonitorEngine {
         statusBars.first { $0.monitoredApp == app }
     }
 
-    func monitor(newApp: MonitoredApp, statusBar: StatusBarController? = nil) {
-        if let statusBar = statusBar,
-            let oldAppIndex = monitoredApps.firstIndex(where: { $0 == statusBar.monitoredApp }) {
-            statusBar.monitorApp(app: newApp)
-            monitoredApps[oldAppIndex] = newApp
-        } else {
-            if (statusBars.contains {
-                $0.monitoredApp == newApp
-            }) {
-                return
-            }
-
-            let firstTimeSetup = statusBars.count == 1 && statusBars[0].monitoredApp == nil
-            let newStatusBar = firstTimeSetup ? statusBars[0] : createNewStatusBar()
-            newStatusBar.monitorApp(app: newApp)
-            statusBars.append(newStatusBar)
-            monitoredApps.append(newApp)
+    func monitor(newApp: MonitoredApp) {
+        if (statusBars.contains {
+            $0.monitoredApp == newApp
+        }) {
+            return
         }
 
+        let firstTimeSetup = statusBars.count == 1 && statusBars[0].monitoredApp == nil
+        let newStatusBar = firstTimeSetup ? statusBars[0] : createNewStatusBar()
+        newStatusBar.monitorApp(app: newApp)
+        statusBars.append(newStatusBar)
+        monitoredApps.append(newApp)
+
         saveSelectedApps()
+    }
+
+    func refreshDisplayModes() {
+        statusBars.forEach {
+            $0.refreshDisplayMode()
+        }
     }
 
     func unMonitor(app: MonitoredApp) {
@@ -93,9 +94,11 @@ class MonitorEngine {
     func showConfigWindow() {
         // New content reads the settings again, for example a login item that changed in System Settings.
         if !configWindow.isVisible {
-            let frame = configWindow.frame
-            configWindow.contentViewController = NSHostingController(rootView: ConfigView())
-            configWindow.setFrame(frame, display: false)
+            let topLeft = NSPoint(x: configWindow.frame.minX, y: configWindow.frame.maxY)
+            let content = NSHostingController(rootView: ConfigView())
+            content.sizingOptions = .preferredContentSize
+            configWindow.contentViewController = content
+            configWindow.setFrameTopLeftPoint(topLeft)
         }
         NSApp.activate(ignoringOtherApps: true)
         configWindow.makeKeyAndOrderFront(nil)
@@ -103,12 +106,9 @@ class MonitorEngine {
     }
 
     private func makeConfigWindow() -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: defaultWindowSize), styleMask: [.closable, .titled], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: configWindowWidth, height: 600), styleMask: [.closable, .titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.title = NSLocalizedString("Doll - badge watcher", comment: "")
-        #if DEBUG
-        window.title += " (Dev)"
-        #endif
+        window.title = Utils.appName
         window.isOpaque = true
         if !window.setFrameUsingName(configWindowFrameName) {
             window.center()

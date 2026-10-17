@@ -6,57 +6,40 @@
 //
 
 import SwiftUI
+import Monitor
+
+private let statusRefreshInterval: TimeInterval = 1
 
 struct MonitoredAppItemView: View {
     var appItem: MonitoredApp
-    @State private var hovering = false
-    @State private var renderFlag = false
+    var iconRevision: Int
+    var openOptions: () -> Void
 
     var body: some View {
-        HStack {
-
-            let hoverIcon = Image(systemName: "photo")
-                .foregroundColor(.white)
-                .background(Color.black.opacity(0.8).frame(width: 40, height: 40))
+        HStack(spacing: 10) {
             Image(nsImage: Storage.appIcon(for: appItem.bundleId))
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 40, height: 40)
-                .overlay(hovering ? hoverIcon : nil)
-                .help("Change icon")
-                .onHover { hovering = $0 }
-                .onTapGesture {
-                    pickIconFile()
-                }
-                .id(renderFlag)
+                .frame(width: 26, height: 26)
+                .id(iconRevision)
 
             Text(appItem.appName)
-        }.padding(.vertical, 8)
-    }
+                .accessibilityIdentifier("monitoredAppName")
 
-    func pickIconFile() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.png, .jpeg, .application]
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
+            Spacer()
 
-        if panel.runModal() == .OK, let url = panel.url {
-            if let image = NSImage(contentsOf: url) {
-                Storage.storeCustomizedAppIcon(for: appItem.bundleId, image: image)
-            } else {
-                if let rep = NSWorkspace.shared.icon(forFile: url.path)
-                    .bestRepresentation(for: NSRect(x: 0, y: 0, width: 1024, height: 1024), context: nil, hints: nil) {
-                    let appIcon = NSImage(size: rep.size)
-                    appIcon.addRepresentation(rep)
-                    Storage.storeCustomizedAppIcon(for: appItem.bundleId, image: appIcon)
-                }
+            TimelineView(.periodic(from: .now, by: statusRefreshInterval)) { _ in
+                Text(MonitoredAppStatus(of: appItem).rowText)
+                    .foregroundStyle(.secondary)
             }
 
-            MonitorEngine.shared.statusBars.forEach {
-                $0.refreshIcon()
+            Button(action: openOptions) {
+                Image(systemName: "info.circle")
             }
-            renderFlag.toggle()
+            .buttonStyle(.borderless)
+            .help("Icon and alert options")
+            .accessibilityLabel("Icon and alert options")
+            .accessibilityIdentifier("monitoredAppOptions")
         }
     }
 }

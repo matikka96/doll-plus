@@ -1,43 +1,24 @@
 import SwiftUI
 
-extension View {
-    @ViewBuilder func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
-        if condition {
-            transform(self)
-        } else {
-            self
+extension Binding {
+    // Before macOS 14, selectionDisabled(when:) does nothing, so the binding drops the value.
+    func rejecting(_ isRejected: @escaping (Value) -> Bool) -> Binding<Value> {
+        Binding {
+            wrappedValue
+        } set: { value in
+            if !isRejected(value) {
+                wrappedValue = value
+            }
         }
-    }
-
-    func placeholder<Content: View>(
-            when shouldShow: Bool,
-            alignment: Alignment = .leading,
-            @ViewBuilder placeholder: () -> Content) -> some View {
-
-        ZStack(alignment: alignment) {
-            placeholder().opacity(shouldShow ? 1 : 0)
-            self
-        }
-    }
-
-    func selfSizeMask<T: View>(_ mask: T) -> some View {
-        ZStack {
-            self.opacity(0)
-            mask.mask(self)
-        }.fixedSize()
     }
 }
 
-struct TextFieldModifier: ViewModifier {
-    let color: Color
-    let padding: CGFloat // <- space between text and border
-    let lineWidth: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-                .padding(padding)
-                .overlay(RoundedRectangle(cornerRadius: padding)
-                        .stroke(color, lineWidth: lineWidth)
-                )
+extension View {
+    @ViewBuilder func selectionDisabled(when disabled: Bool) -> some View {
+        if #available(macOS 14, *) {
+            selectionDisabled(disabled)
+        } else {
+            self
+        }
     }
 }

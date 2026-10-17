@@ -21,6 +21,16 @@ public class AppListService {
 
     public static var shared = AppListService()
 
+    // Spotlight does not list an app outside an indexed folder, or any app when indexing is off.
+    public static var runningApplications: [AppInfo] {
+        NSWorkspace.shared.runningApplications.compactMap { app in
+            guard app.activationPolicy == .regular, let bundleId = app.bundleIdentifier, let url = app.bundleURL else {
+                return nil
+            }
+            return AppInfo(bundleId: bundleId, fullPath: url.path, localizedName: AppInfo.displayName(ofAppAt: url), icon: app.icon)
+        }
+    }
+
     public func setup() {
         if !query.isStarted {
             let predicate = NSPredicate(format: "kMDItemContentType == 'com.apple.application-bundle'")
