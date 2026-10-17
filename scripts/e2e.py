@@ -771,6 +771,20 @@ def clear_badge(doll, a, screenshots):
         raise CheckFailed(f"the status item still has a title: {app}")
 
 
+@scenario("The giant arrow does not show when a badge that is not a number clears", alerts=True)
+def no_arrow_on_cleared_text_badge(doll, a, screenshots):
+    set_badge(a, "•")
+    wait_dock_label(a, "•")
+    doll.wait_badge(a, "•")
+    wait_until(doll.arrow, what="the giant arrow did not show for the badge '•'")
+    set_badge(a, "")
+    wait_dock_label(a, "")
+    doll.wait_badge(a, "")
+    time.sleep(RENDER_SETTLE)
+    if arrow := doll.arrow():
+        raise CheckFailed(f"the giant arrow {arrow} shows after the badge '•' cleared")
+
+
 @scenario("The status item grows with the badge: 1, 12, 123")
 def badge_growth(doll, a, screenshots):
     for badge in ("1", "12", "123"):
