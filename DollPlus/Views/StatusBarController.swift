@@ -98,7 +98,7 @@ class StatusBarController {
         statusItem.autosaveName = newPosition.autosaveName
         monitoredApp = app
         statusItem.button?.toolTip = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleId) == nil
-            ? String(format: NSLocalizedString("%@ is not installed. Click to choose another app", comment: ""), app.appName)
+            ? String(format: NSLocalizedString("%@ is not installed. Click to open the settings.", comment: ""), app.appName)
             : nil
         updateBadgeText(nil)
 

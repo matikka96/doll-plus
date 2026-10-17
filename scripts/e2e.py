@@ -508,12 +508,13 @@ def restart_dock():
 
 class DollPlus:
     def __init__(self, scenario: str, fixtures, red_badge: bool, hide_when_empty: bool = False, alerts: bool = False,
-                 binary: Path = APP_BINARY):
+                 ui_settings: bool = False, binary: Path = APP_BINARY):
         self.scenario = scenario
         self.fixtures = fixtures
         self.red_badge = red_badge
         self.hide_when_empty = hide_when_empty
         self.alerts = alerts
+        self.ui_settings = ui_settings
         self.binary = binary
         self.process = None
 
@@ -535,19 +536,22 @@ class DollPlus:
         log = open(LOGS / f"{self.scenario}.log", "w")
         settings = {
             "SETTING_MONITORED_APP_IDS": ",".join(f.bundle_id for f in self.fixtures),
-            "SETTINGS_Show_As_Red_Badge": plist_bool(self.red_badge),
-            "SETTINGS_Show_Only_App_Icon": plist_bool(False),
-            "SETTINGS_Hide_When_App_Not_Running": plist_bool(False),
-            "SETTINGS_Hide_When_Nothing_Coming": plist_bool(self.hide_when_empty),
-            "SETTINGS_Grayout_Icon_When_Nothing_Coming": plist_bool(False),
-            "SETTINGS_SHOW_ALERT_IN_FULL_SCREEN_Mode": plist_bool(self.alerts),
-            "SETTINGS_Giant_Badge_Enabled_Apps": "<dict>" + "".join(
-                f"<key>{f.bundle_id}</key><true/>" for f in (self.fixtures if self.alerts else ())) + "</dict>",
-            "SETTINGS_APPS_ICON_MASK": "<dict/>",
+            "SETTINGS_Show_As_Red_Badge": self.red_badge,
+            "SETTINGS_Show_Only_App_Icon": False,
+            "SETTINGS_Hide_When_App_Not_Running": False,
+            "SETTINGS_Hide_When_Nothing_Coming": self.hide_when_empty,
+            "SETTINGS_Grayout_Icon_When_Nothing_Coming": False,
+            "SETTINGS_SHOW_ALERT_IN_FULL_SCREEN_Mode": self.alerts,
+            "SETTINGS_Giant_Badge_Enabled_Apps": {f.bundle_id: True for f in (self.fixtures if self.alerts else ())},
+            "SETTINGS_APPS_ICON_MASK": {},
             "ApplePersistenceIgnoreState": "YES",
             "DollPlusStateFile": str(STATE_FILE),
         }
-        args = [str(self.binary)] + [token for key, value in settings.items() for token in (f"-{key}", value)]
+        if self.ui_settings:
+            stored = {key: value for key, value in settings.items() if key.startswith("SETTINGS_")}
+            store_settings(stored)
+            settings = {key: value for key, value in settings.items() if key not in stored}
+        args = [str(self.binary)] + [token for key, value in settings.items() for token in (f"-{key}", plist_argument(value))]
         self.process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
         try:
             wait_until(lambda: len(self.state().get("apps", [])) == len(set(self.fixtures)),
@@ -589,17 +593,32 @@ class DollPlus:
     def config_rows(self):
         return self._config("rows")
 
-    def config_buttons(self):
-        return self._config("buttons")
+    def select_row(self, name: str):
+        self._config("select", name)
 
     def open_row(self, name: str):
         self._config("open", name)
 
-    def toggle_setting(self, label: str):
-        self._config("toggle", label)
+    def sheet_open(self) -> bool:
+        return self._config("sheet")["open"]
+
+    def toggle_setting(self, identifier: str):
+        self._config("toggle", identifier)
+
+    def pick(self, identifier: str, segment: str):
+        self._config("pick", identifier, segment)
+
+    def press(self, identifier: str):
+        self._config("press", identifier)
+
+    def enabled(self, identifier: str) -> bool:
+        return self._config("enabled", identifier)["enabled"]
 
     def remove_row(self, name: str):
         self._config("remove", name)
+
+    def add_app(self, name: str):
+        self._config("add", name)
 
     def config_frame(self):
         return self._config("frame")["frame"]
@@ -687,8 +706,19 @@ class DollPlus:
             print("    screenshot failed. The terminal needs the Screen Recording permission.")
 
 
-def plist_bool(value: bool) -> str:
-    return "<true/>" if value else "<false/>"
+def plist_argument(value) -> str:
+    if isinstance(value, bool):
+        return "<true/>" if value else "<false/>"
+    if isinstance(value, dict):
+        return "<dict>" + "".join(f"<key>{key}</key>{plist_argument(item)}" for key, item in value.items()) + "</dict>"
+    return value
+
+
+# A setting in the argument domain hides a change that the config window makes.
+def store_settings(settings: dict):
+    exported = subprocess.run(["defaults", "export", APP_BUNDLE_ID, "-"], capture_output=True).stdout
+    domain = plistlib.loads(exported) if exported else {}
+    run(["defaults", "import", APP_BUNDLE_ID, "-"], input=plistlib.dumps({**domain, **settings}))
 
 
 
@@ -703,16 +733,17 @@ class Scenario:
     hide_when_empty: bool = False
     steals_focus: bool = False
     alerts: bool = False
+    ui_settings: bool = False
 
 
 SCENARIOS: list[Scenario] = []
 
 
 def scenario(summary, fixtures=("a",), known_issue=None, red_badge=False, hide_when_empty=False, steals_focus=False,
-             alerts=False):
+             alerts=False, ui_settings=False):
     def register(body):
         SCENARIOS.append(Scenario(body.__name__.replace("_", "-"), summary, tuple(FIXTURES[k] for k in fixtures), body,
-                                  known_issue, red_badge, hide_when_empty, steals_focus, alerts))
+                                  known_issue, red_badge, hide_when_empty, steals_focus, alerts, ui_settings))
         return body
     return register
 
@@ -871,34 +902,97 @@ def assert_selection_holds(doll, names):
 
 @scenario("A config row stays selected after a setting changes", fixtures=("a", "b"), steals_focus=True)
 def row_keeps_selection(doll, a, b, screenshots):
-    doll.open_row(a.dock_title)
+    doll.select_row(a.dock_title)
     assert_selected_rows(doll, [a.dock_title])
-    doll.toggle_setting("Hide icon if monitored app isn't running")
+    doll.toggle_setting("hideWhenAppNotRunning")
     assert_selection_holds(doll, [a.dock_title])
+
+
+def monitored_bundle_ids(doll):
+    return [app["bundleId"] for app in doll.state().get("apps", [])]
+
+
+def assert_monitored(doll, fixtures, after: str):
+    expected = [f.bundle_id for f in fixtures]
+    wait_until(lambda: monitored_bundle_ids(doll) == expected, describe=lambda: f"state: {doll.state().get('apps')}",
+               what=f"Doll Plus does not monitor {expected} after {after}")
+    rows = [r["name"] for r in doll.config_rows()]
+    if rows != [f.dock_title for f in fixtures]:
+        raise CheckFailed(f"the config list shows {rows} after {after}, expected {[f.dock_title for f in fixtures]}")
 
 
 @scenario("The Remove item of a config row stops monitoring the app", fixtures=("a", "b"), steals_focus=True)
 def remove_from_list(doll, a, b, screenshots):
     doll.remove_row(b.dock_title)
-    wait_until(lambda: [app["bundleId"] for app in doll.state().get("apps", [])] == [a.bundle_id],
-               describe=lambda: f"state: {doll.state().get('apps')}", what=f"Doll Plus still monitors {b.dock_title}")
-    rows = [r["name"] for r in doll.config_rows()]
-    if rows != [a.dock_title]:
-        raise CheckFailed(f"the config list shows {rows}, expected {[a.dock_title]}")
+    assert_monitored(doll, [a], "the Remove item")
 
 
-def detail_pane_open(doll, fixture):
-    return f'Stop monitoring - "{fixture.dock_title}"' in doll.config_buttons()
+@scenario("The - button removes the selected app, and is disabled with no selection", fixtures=("a", "b"), steals_focus=True)
+def remove_with_minus(doll, a, b, screenshots):
+    if doll.enabled("removeApp"):
+        raise CheckFailed("the - button is enabled with no selected row")
+    doll.select_row(b.dock_title)
+    doll.press("removeApp")
+    assert_monitored(doll, [a], "the - button")
+    if doll.enabled("removeApp"):
+        raise CheckFailed("the - button stays enabled after the selected row goes away")
 
 
-@scenario("Removing the open config row closes its detail pane", fixtures=("a", "b"), steals_focus=True)
-def remove_open_row(doll, a, b, screenshots):
+@scenario("Stop Monitoring in the app sheet stops monitoring the app and closes the sheet", fixtures=("a", "b"),
+          steals_focus=True)
+def stop_monitoring_in_sheet(doll, a, b, screenshots):
     doll.open_row(b.dock_title)
-    wait_until(lambda: detail_pane_open(doll, b), describe=lambda: f"rows: {doll.config_rows()}, buttons: {doll.config_buttons()}",
-               what=f"the detail pane of {b.dock_title} did not open")
-    doll.remove_row(b.dock_title)
-    wait_until(lambda: not detail_pane_open(doll, b), describe=lambda: f"buttons: {doll.config_buttons()}",
-               what=f"the detail pane of the removed row {b.dock_title} stays open")
+    doll.press("stopMonitoring")
+    wait_until(lambda: not doll.sheet_open(), what=f"the app sheet of {b.dock_title} stays open")
+    assert_monitored(doll, [a], "Stop Monitoring")
+
+
+@scenario("An app added through the add sheet gets a config row and a status item with its badge", steals_focus=True)
+def add_from_sheet(doll, a, screenshots):
+    b = FIXTURES["b"]
+    # The add sheet lists the running apps also when Spotlight does not index the fixtures.
+    launch_fixture(b)
+    doll.add_app(b.dock_title)
+    assert_monitored(doll, [a, b], "the add sheet")
+    set_badge(b, "4")
+    wait_dock_label(b, "4")
+    doll.wait_badge(b, "4")
+
+
+@scenario("The Badge picker shows the badge as a number, a red badge or the icon only", steals_focus=True, ui_settings=True)
+def badge_picker(doll, a, screenshots):
+    set_badge(a, "3")
+    wait_dock_label(a, "3")
+    doll.wait_badge(a, "3")
+    for segment, title, red_badge in (("Red badge", "", "3"), ("Icon only", "", None), ("Number", "3", None)):
+        doll.pick("badgeStyle", segment)
+        doll.wait_app(a, lambda app: app["title"] == title and app["redBadgeLabel"] == red_badge,
+                      f"the status item does not show {segment}: title {title!r}, red badge {red_badge!r}")
+
+
+@scenario("The picker for nothing new shows, dims or hides the status item", steals_focus=True, ui_settings=True)
+def nothing_new_picker(doll, a, screenshots):
+    set_badge(a, "")
+    wait_dock_label(a, "")
+    shown = doll.wait_badge(a, "")["imageDigest"]
+    doll.pick("nothingNewStyle", "Dim")
+    doll.wait_app(a, lambda app: app["visible"] and app["imageDigest"] != shown, "the status item is not dimmed")
+    doll.pick("nothingNewStyle", "Hide")
+    doll.wait_app(a, lambda app: not app["visible"], "the status item is not hidden")
+    doll.pick("nothingNewStyle", "Show")
+    doll.wait_app(a, lambda app: app["visible"] and app["imageDigest"] == shown, "the status item does not show as before")
+
+
+@scenario("The red arrow switch of the app sheet shows the arrow for a new badge", steals_focus=True, ui_settings=True)
+def app_sheet_arrow(doll, a, screenshots):
+    doll.open_row(a.dock_title)
+    doll.toggle_setting("giantBadge")
+    doll.press("done")
+    wait_until(lambda: not doll.sheet_open(), what=f"the app sheet of {a.dock_title} stays open")
+    set_badge(a, "2")
+    wait_dock_label(a, "2")
+    doll.wait_badge(a, "2")
+    wait_until(doll.arrow, what="the red arrow did not show")
 
 
 @scenario("A bundle ID saved twice gives one config row", fixtures=("a", "a"), steals_focus=True)
@@ -916,7 +1010,7 @@ def assert_config_frame(doll, expected, after: str):
 @scenario("The config window keeps its frame and selected row when Doll Plus becomes active again",
           fixtures=("a", "b"), steals_focus=True)
 def config_keeps_state(doll, a, b, screenshots):
-    doll.open_row(a.dock_title)
+    doll.select_row(a.dock_title)
     assert_selected_rows(doll, [a.dock_title])
     moved = doll.move_config_window()
     run(["open", str(b.app)])
@@ -1212,7 +1306,7 @@ def reset_fixtures(fixtures):
 def scenario_outcome(s: Scenario, screenshots: bool) -> tuple[str, str]:
     try:
         reset_fixtures(s.fixtures)
-        with DollPlus(s.name, s.fixtures, s.red_badge, s.hide_when_empty, s.alerts) as doll:
+        with DollPlus(s.name, s.fixtures, s.red_badge, s.hide_when_empty, s.alerts, s.ui_settings) as doll:
             s.body(doll, *s.fixtures, screenshots)
         return ("XPASS" if s.known_issue else "PASS"), ""
     except ScenarioSkipped as reason:

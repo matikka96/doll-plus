@@ -19,6 +19,22 @@ class AppSettings {
     @UserDefaultSetting("SETTINGS_Show_Only_App_Icon")
     static var showOnlyAppIcon = false
 
+    static var badgeStyle: BadgeStyle {
+        get { BadgeStyle(showAsRedBadge: showAsRedBadge, showOnlyAppIcon: showOnlyAppIcon) }
+        set {
+            showAsRedBadge = newValue.showAsRedBadge
+            showOnlyAppIcon = newValue.showOnlyAppIcon
+        }
+    }
+
+    static var nothingNewStyle: NothingNewStyle {
+        get { NothingNewStyle(grayoutIcon: grayoutIconWhenNothingComing, hide: hideWhenNothingComing) }
+        set {
+            grayoutIconWhenNothingComing = newValue.grayoutIcon
+            hideWhenNothingComing = newValue.hide
+        }
+    }
+
     @UserDefaultSetting("SETTINGS_Giant_Badge_Enabled_Apps")
     static var giantBadgeConfigs: [String: Bool] = [:]
 

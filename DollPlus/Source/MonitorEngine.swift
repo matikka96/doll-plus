@@ -6,6 +6,7 @@ import Utils
 let defaultWindowSize = NSSize(width: 900, height: 600)
 let SETTING_MONITORED_APP_IDS = "SETTING_MONITORED_APP_IDS"
 let configWindowFrameName = "DollPlusConfigWindow"
+let configWindowContentSize = NSSize(width: 520, height: 740)
 
 class MonitorEngine {
 
@@ -56,26 +57,26 @@ class MonitorEngine {
         statusBars.first { $0.monitoredApp == app }
     }
 
-    func monitor(newApp: MonitoredApp, statusBar: StatusBarController? = nil) {
-        if let statusBar = statusBar,
-            let oldAppIndex = monitoredApps.firstIndex(where: { $0 == statusBar.monitoredApp }) {
-            statusBar.monitorApp(app: newApp)
-            monitoredApps[oldAppIndex] = newApp
-        } else {
-            if (statusBars.contains {
-                $0.monitoredApp == newApp
-            }) {
-                return
-            }
-
-            let firstTimeSetup = statusBars.count == 1 && statusBars[0].monitoredApp == nil
-            let newStatusBar = firstTimeSetup ? statusBars[0] : createNewStatusBar()
-            newStatusBar.monitorApp(app: newApp)
-            statusBars.append(newStatusBar)
-            monitoredApps.append(newApp)
+    func monitor(newApp: MonitoredApp) {
+        if (statusBars.contains {
+            $0.monitoredApp == newApp
+        }) {
+            return
         }
 
+        let firstTimeSetup = statusBars.count == 1 && statusBars[0].monitoredApp == nil
+        let newStatusBar = firstTimeSetup ? statusBars[0] : createNewStatusBar()
+        newStatusBar.monitorApp(app: newApp)
+        statusBars.append(newStatusBar)
+        monitoredApps.append(newApp)
+
         saveSelectedApps()
+    }
+
+    func refreshDisplayModes() {
+        statusBars.forEach {
+            $0.refreshDisplayMode()
+        }
     }
 
     func unMonitor(app: MonitoredApp) {
@@ -103,14 +104,16 @@ class MonitorEngine {
     }
 
     private func makeConfigWindow() -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: defaultWindowSize), styleMask: [.closable, .titled], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: configWindowContentSize), styleMask: [.closable, .titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.title = NSLocalizedString("Doll - badge watcher", comment: "")
-        #if DEBUG
-        window.title += " (Dev)"
-        #endif
+        window.title = Utils.appName
         window.isOpaque = true
-        if !window.setFrameUsingName(configWindowFrameName) {
+        if window.setFrameUsingName(configWindowFrameName) {
+            // A saved frame can come from an older, larger window.
+            let topLeft = NSPoint(x: window.frame.minX, y: window.frame.maxY)
+            window.setContentSize(configWindowContentSize)
+            window.setFrameTopLeftPoint(topLeft)
+        } else {
             window.center()
         }
         window.setFrameAutosaveName(configWindowFrameName)

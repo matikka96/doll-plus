@@ -151,15 +151,12 @@ enum Utils {
         return nil
     }
 
+    static var appName: String {
+        Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String ?? "Doll Plus"
+    }
+
     static var appVersion: String {
-        let shortVersionString = Bundle.main.infoDictionary!["CFBundleShortVersionString"] as! String
-        let buildNumber = Bundle.main.infoDictionary!["CFBundleVersion"] as? String
-
-        if let buildNumber {
-            return "\(shortVersionString) build \(buildNumber)"
-        }
-
-        return shortVersionString
+        Bundle.main.infoDictionary!["CFBundleShortVersionString"] as! String
     }
 
 }

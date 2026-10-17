@@ -31,7 +31,9 @@
 		B09C303728536AF9004CC54F /* Monitor in Frameworks */ = {isa = PBXBuildFile; productRef = B09C303628536AF9004CC54F /* Monitor */; };
 		B09C303928536AF9004CC54F /* Utils in Frameworks */ = {isa = PBXBuildFile; productRef = B09C303828536AF9004CC54F /* Utils */; };
 		B09C303B285380DC004CC54F /* ConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C303A285380DC004CC54F /* ConfigView.swift */; };
-		B0CC3C83285393B0006F6361 /* MonitorConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C82285393B0006F6361 /* MonitorConfigView.swift */; };
+		B0CC3C83285393B0006F6361 /* AppSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C82285393B0006F6361 /* AppSheet.swift */; };
+		B0CC3C8B285393B0006F6361 /* AddAppSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C8A285393B0006F6361 /* AddAppSheet.swift */; };
+		B0CC3C8D285393B0006F6361 /* MonitoredAppStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C8C285393B0006F6361 /* MonitoredAppStatus.swift */; };
 		B0CC3C8828547594006F6361 /* Utils.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C8728547594006F6361 /* Utils.swift */; };
 		B0CC3C9128556203006F6361 /* NSImageExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C9028556203006F6361 /* NSImageExtensions.swift */; };
 		D0115E0C0000000000000004 /* DebugStateWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0115E0C0000000000000003 /* DebugStateWriter.swift */; };
@@ -64,7 +66,9 @@
 		89CB808D27A36A780065CA70 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		B09C303528536AEC004CC54F /* MonitorCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = MonitorCore; sourceTree = "<group>"; };
 		B09C303A285380DC004CC54F /* ConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigView.swift; sourceTree = "<group>"; };
-		B0CC3C82285393B0006F6361 /* MonitorConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorConfigView.swift; sourceTree = "<group>"; };
+		B0CC3C82285393B0006F6361 /* AppSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSheet.swift; sourceTree = "<group>"; };
+		B0CC3C8A285393B0006F6361 /* AddAppSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAppSheet.swift; sourceTree = "<group>"; };
+		B0CC3C8C285393B0006F6361 /* MonitoredAppStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitoredAppStatus.swift; sourceTree = "<group>"; };
 		B0CC3C8728547594006F6361 /* Utils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils.swift; sourceTree = "<group>"; };
 		B0CC3C9028556203006F6361 /* NSImageExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NSImageExtensions.swift; sourceTree = "<group>"; };
 		D0115E0C0000000000000001 /* DollPlus.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = DollPlus.xcconfig; sourceTree = "<group>"; };
@@ -166,9 +170,11 @@
 				89CB807A27A312F10065CA70 /* ApplicationListView.swift */,
 				3A05F1218D99BE11708A20CF /* NotificationView.swift */,
 				B09C303A285380DC004CC54F /* ConfigView.swift */,
-				B0CC3C82285393B0006F6361 /* MonitorConfigView.swift */,
+				B0CC3C82285393B0006F6361 /* AppSheet.swift */,
+				B0CC3C8A285393B0006F6361 /* AddAppSheet.swift */,
 				893D12FF296DC5CB0071F166 /* GiantBadgeView.swift */,
 				893D1305296EF9530071F166 /* MonitoredAppItemView.swift */,
+				B0CC3C8C285393B0006F6361 /* MonitoredAppStatus.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -274,10 +280,12 @@
 				3A05FCF2E46CD3CFEAB29839 /* NotificationView.swift in Sources */,
 				893D1300296DC5CB0071F166 /* GiantBadgeView.swift in Sources */,
 				B0CC3C9128556203006F6361 /* NSImageExtensions.swift in Sources */,
-				B0CC3C83285393B0006F6361 /* MonitorConfigView.swift in Sources */,
+				B0CC3C83285393B0006F6361 /* AppSheet.swift in Sources */,
+				B0CC3C8B285393B0006F6361 /* AddAppSheet.swift in Sources */,
 				3A05F319D3B6EACC3882AF88 /* UserDefaultSettings.swift in Sources */,
 				3A05FBC07A5CF3CCC2701FBC /* AppSettings.swift in Sources */,
 				893D1306296EF9530071F166 /* MonitoredAppItemView.swift in Sources */,
+				B0CC3C8D285393B0006F6361 /* MonitoredAppStatus.swift in Sources */,
 				893D1304296EF7890071F166 /* DataExtensions.swift in Sources */,
 				3A05F079FD8ED95600C00E09 /* NSEventExtensions.swift in Sources */,
 				893D12FE296DB2EF0071F166 /* HotkeyManager.swift in Sources */,

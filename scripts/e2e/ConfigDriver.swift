@@ -73,29 +73,55 @@ func waitFor(_ what: String, timeout: TimeInterval = 5, _ condition: () -> Bool)
     waitFor(what, timeout: timeout) { condition() ? true : nil }
 }
 
+func identifier(_ element: AXUIElement) -> String? {
+    attribute(element, "AXIdentifier") as? String
+}
+
+func element(_ id: String, in root: AXUIElement) -> AXUIElement? {
+    descendants(of: root).first { identifier($0) == id }
+}
+
+func isEnabled(_ element: AXUIElement) -> Bool {
+    attribute(element, kAXEnabledAttribute) as? Bool ?? true
+}
+
+let monitoredAppName = "monitoredAppName"
+let installedAppName = "installedAppName"
+
 struct Row {
     let element: AXUIElement
-    let content: AXUIElement
     let name: String
 }
 
-func rows(in window: AXUIElement) -> [Row] {
-    descendants(of: window)
+func rows(in root: AXUIElement, nameId: String = monitoredAppName) -> [Row] {
+    descendants(of: root)
         .filter { subrole($0) == "AXOutlineRow" }
         .compactMap { row in
-            guard let content = descendants(of: row).first(where: { label($0) != nil }), let name = label(content) else {
+            guard let nameText = descendants(of: row).first(where: { identifier($0) == nameId }),
+                  let name = attribute(nameText, kAXValueAttribute) as? String else {
                 return nil
             }
-            return Row(element: row, content: content, name: name)
+            return Row(element: row, name: name)
         }
 }
 
-func row(named name: String, in window: AXUIElement) -> Row {
-    waitFor("the row \(name)") { rows(in: window).first { $0.name == name } }
+func row(named name: String, in root: AXUIElement, nameId: String = monitoredAppName) -> Row {
+    waitFor("the row \(name)") { rows(in: root, nameId: nameId).first { $0.name == name } }
 }
 
 func isSelected(_ row: Row) -> Bool {
     attribute(row.element, kAXSelectedAttribute) as? Bool ?? false
+}
+
+// A selection while the window still loads can have no effect.
+func select(_ name: String, in root: AXUIElement, nameId: String = monitoredAppName) -> Row {
+    waitFor("the selected row \(name)") { () -> Row? in
+        let target = row(named: name, in: root, nameId: nameId)
+        if !isSelected(target) {
+            AXUIElementSetAttributeValue(target.element, kAXSelectedAttribute as CFString, kCFBooleanTrue)
+        }
+        return poll(timeout: 0.5) { isSelected(row(named: name, in: root, nameId: nameId)) } ? target : nil
+    }
 }
 
 func press(_ element: AXUIElement) {
@@ -105,7 +131,20 @@ func press(_ element: AXUIElement) {
     }
 }
 
-let usage = "usage: config-driver PID rows | buttons | open NAME | toggle LABEL | remove NAME | frame | show | move DX DY | close | activate"
+func press(_ id: String, in root: AXUIElement) {
+    let target = waitFor("the control \(id)") { element(id, in: root) }
+    waitFor("the enabled control \(id)") { isEnabled(target) }
+    press(target)
+}
+
+func sheet(of window: AXUIElement) -> AXUIElement? {
+    children(of: window).first { role($0) == "AXSheet" }
+}
+
+let usage = """
+usage: config-driver PID rows | select NAME | open NAME | sheet | toggle ID | pick ID LABEL | press ID | enabled ID
+       | remove NAME | add NAME | frame | show | move DX DY | close | activate
+"""
 let arguments = CommandLine.arguments
 guard arguments.count >= 3, let pid = pid_t(arguments[1]) else {
     fail(usage)
@@ -149,8 +188,6 @@ func showConfigWindow() -> AXUIElement {
 switch (arguments[2], arguments.count > 3 ? arguments[3] : nil) {
 case ("rows", nil):
     printJSON(rows(in: showConfigWindow()).map { ["name": $0.name, "selected": isSelected($0)] })
-case ("buttons", nil):
-    printJSON(descendants(of: showConfigWindow()).filter { role($0) == kAXButtonRole }.compactMap(label))
 case ("frame", nil):
     printJSON(["frame": frameJSON(configWindow().flatMap(frame(of:)))])
 case ("show", nil):
@@ -176,39 +213,69 @@ case ("activate", nil):
     AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
     waitFor("the frontmost Doll Plus") { attribute(app, kAXFrontmostAttribute) as? Bool == true }
     printJSON(["ok": true])
+case ("select", let name?):
+    _ = select(name, in: showConfigWindow())
+    printJSON(["ok": true])
 case ("open", let name?):
     let window = showConfigWindow()
-    // A press while the window still loads can have no effect.
-    waitFor("the selected row \(name)") { () -> Bool in
-        let target = row(named: name, in: window)
-        if isSelected(target) {
-            return true
-        }
-        AXUIElementPerformAction(target.content, kAXPressAction as CFString)
-        return poll(timeout: 0.5) { isSelected(row(named: name, in: window)) }
+    let target = row(named: name, in: window)
+    guard let options = descendants(of: target.element).first(where: { identifier($0) == "monitoredAppOptions" }) else {
+        fail("the row \(name) has no options button")
     }
+    press(options)
+    waitFor("the sheet of \(name)") { sheet(of: window) }
     printJSON(["ok": true])
-case ("toggle", let checkboxLabel?):
+case ("sheet", nil):
+    let texts = sheet(of: showConfigWindow()).map { descendants(of: $0).filter { role($0) == kAXStaticTextRole } } ?? []
+    printJSON(["open": sheet(of: showConfigWindow()) != nil, "texts": texts.compactMap { attribute($0, kAXValueAttribute) as? String }])
+case ("toggle", let id?):
     let window = showConfigWindow()
-    let checkbox = { descendants(of: window).first { role($0) == kAXCheckBoxRole && label($0) == checkboxLabel } }
-    let value = { checkbox().flatMap { attribute($0, kAXValueAttribute) as? Int } }
-    let before = waitFor("the checkbox \(checkboxLabel)", value)
-    press(waitFor("the checkbox \(checkboxLabel)", checkbox))
-    waitFor("a new value of the checkbox \(checkboxLabel)") { value().map { $0 != before } ?? false }
+    let value = { element(id, in: window).flatMap { attribute($0, kAXValueAttribute) as? Int } }
+    let before = waitFor("the switch \(id)", value)
+    press(id, in: window)
+    waitFor("a new value of the switch \(id)") { value().map { $0 != before } ?? false }
+    printJSON(["value": value().map { $0 as Any } ?? NSNull()])
+case ("pick", let id?):
+    guard arguments.count == 5 else {
+        fail(usage)
+    }
+    let segmentLabel = arguments[4]
+    let window = showConfigWindow()
+    let segment = {
+        element(id, in: window).flatMap { picker in children(of: picker).first { label($0) == segmentLabel } }
+    }
+    press(waitFor("the segment \(segmentLabel) of \(id)", segment))
+    waitFor("the selected segment \(segmentLabel) of \(id)") { segment().flatMap { attribute($0, kAXValueAttribute) as? Int } == 1 }
     printJSON(["ok": true])
+case ("press", let id?):
+    press(id, in: showConfigWindow())
+    printJSON(["ok": true])
+case ("enabled", let id?):
+    printJSON(["enabled": isEnabled(waitFor("the control \(id)") { element(id, in: showConfigWindow()) })])
 case ("remove", let name?):
-    let target = row(named: name, in: showConfigWindow())
-    guard let menuOwner = ([target.content, target.element] + descendants(of: target.element))
-        .first(where: { actions(of: $0).contains(kAXShowMenuAction) }) else {
-        fail("the row \(name) has no context menu")
+    let target = select(name, in: showConfigWindow())
+    // The list shows the menu for the selected rows.
+    guard let list = attribute(target.element, kAXParentAttribute).map({ $0 as! AXUIElement }),
+          actions(of: list).contains(kAXShowMenuAction) else {
+        fail("the list of the row \(name) has no context menu")
     }
     // NSMenu tracking delays the reply to AXShowMenu until the menu closes.
-    AXUIElementSetMessagingTimeout(menuOwner, 0.5)
-    AXUIElementPerformAction(menuOwner, kAXShowMenuAction as CFString)
+    AXUIElementSetMessagingTimeout(list, 0.5)
+    AXUIElementPerformAction(list, kAXShowMenuAction as CFString)
     let item = waitFor("the Remove menu item") {
         descendants(of: app).first { role($0) == kAXMenuItemRole && label($0) == "Remove" }
     }
     press(item)
+    printJSON(["ok": true])
+case ("add", let name?):
+    let window = showConfigWindow()
+    press("addApp", in: window)
+    let addSheet = waitFor("the add sheet") { sheet(of: window) }
+    let search = waitFor("the search field") { element("searchApps", in: addSheet) }
+    AXUIElementSetAttributeValue(search, kAXValueAttribute as CFString, name as CFString)
+    _ = select(name, in: addSheet, nameId: installedAppName)
+    press("confirmAdd", in: addSheet)
+    waitFor("the closed add sheet") { sheet(of: window) == nil }
     printJSON(["ok": true])
 default:
     fail(usage)

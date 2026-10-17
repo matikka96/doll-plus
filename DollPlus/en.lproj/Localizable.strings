@@ -1,35 +1,75 @@
-"Select an app to monitor its badge" = "􀊫 Select an app to monitor its badge";
-"About" = "About";
-"Stop monitoring" = "Stop monitoring";
-"Remove" = "Remove";
-"Quit" = "Quit";
-"Launch at login" = "Launch at login";
-"Hide icon if monitored app isn't running" = "Hide icon if monitored app isn't running";
-"Hide icons when there are no new notifications" = "Hide icons when there are no new notifications";
-"Grayout icons when there are no new notifications" = "Grayout icons when there are no new notifications";
-"Show notification on full screen mode" = "Show notification even when menu bar is hidden";
-"Show as red badge" = "Show notification as a red badge";
-"Show only app icon" = "Just show app icon, hide all notifications";
-"Hotkey to open this config window" = "Hotkey to open this config window:";
-
-"About Doll" = "About Doll Plus (%@)";
-"Tip me" = "Love this app? Buy the original author of Doll a coffee! :)";
-"Buy me a coffee" = "Buy me a coffee";
 "Hold option key ⌥ and click to config" = "Hold option key ⌥ and click to config";
-"%@ is not installed. Click to choose another app" = "%@ is not installed. Click to choose another app";
+"%@ is not installed. Click to open the settings." = "%@ is not installed. Click to open the settings.";
 
-"About author" = "Made by **xiaogd**";
-"How it works?" = "How it works?";
-"Based on" = "Based on Doll by xiaogd:";
+"%@ can't read Dock badges" = "%@ can't read Dock badges";
+"Turn on %@ in Privacy & Security › Accessibility." = "Turn on %@ in Privacy & Security › Accessibility.";
+"Open System Settings" = "Open System Settings";
 
-"Doll - badge watcher" = "Doll Plus - badge watcher";
-"Open System Preferences" = "Open System Settings";
+"Monitored apps" = "Monitored apps";
+"No apps yet. Click + to choose one." = "No apps yet. Click + to choose one.";
+"Double-click an app, or click its info button, for its icon and alert options." = "Double-click an app, or click its info button, for its icon and alert options.";
+"Add an app" = "Add an app";
+"Remove the selected app" = "Remove the selected app";
+"Remove" = "Remove";
+"Icon and alert options" = "Icon and alert options";
+"%@ new" = "%@ new";
+"Nothing new" = "Nothing new";
+"nothing new" = "nothing new";
+"Running" = "Running";
+"Not running" = "Not running";
+
+"Menu bar" = "Menu bar";
+"Badge" = "Badge";
+"Number" = "Number";
+"Red badge" = "Red badge";
+"Icon only" = "Icon only";
+"The number of new notifications, next to the icon." = "The number of new notifications, next to the icon.";
+"A red badge on the icon, like in the Dock." = "A red badge on the icon, like in the Dock.";
+"Only the icon. Some options below don't apply." = "Only the icon. Some options below don't apply.";
+"When there's nothing new" = "When there's nothing new";
+"Show" = "Show";
+"Dim" = "Dim";
+"Hide" = "Hide";
+"The icon stays as it is." = "The icon stays as it is.";
+"The icon is dimmed." = "The icon is dimmed.";
+"The icon is hidden until something arrives." = "The icon is hidden until something arrives.";
+"Hide doesn't apply to Icon only." = "Hide doesn't apply to Icon only.";
+"Hide while the app isn't running" = "Hide while the app isn't running";
+"The icon comes back when the app starts." = "The icon comes back when the app starts.";
+"Doesn't apply to Icon only." = "Doesn't apply to Icon only.";
+
+"Alerts" = "Alerts";
+"Show alerts when the menu bar is hidden" = "Show alerts when the menu bar is hidden";
+"For example, while an app is full screen." = "For example, while an app is full screen.";
+
+"General" = "General";
+"Launch at login" = "Launch at login";
+"Shortcut to open this window" = "Shortcut to open this window";
+"Click the field, then press the keys." = "Click the field, then press the keys.";
+"About" = "About";
+"Quit %@" = "Quit %@";
+
+"Version %@" = "Version %@";
+"Shows the Dock badges of your apps in the menu bar. Based on [Doll](https://github.com/xiaogdgenuine/Doll)." = "Shows the Dock badges of your apps in the menu bar. Based on [Doll](https://github.com/xiaogdgenuine/Doll).";
+"Icon from [Darius Dan - Flaticon](https://www.flaticon.com/free-icons/reminder)" = "Icon from [Darius Dan - Flaticon](https://www.flaticon.com/free-icons/reminder)";
 "OK" = "OK";
-"Permission grant guideline" = "Please go to \nSystem Settings -> Privacy & Security -> Accessibility\nand add Doll Plus to the list so it can monitor badge updates.";
-"Add monitor guideline" = "No app is monitoring, click \"+\" to add one.";
 
+"Menu bar icon" = "Menu bar icon";
+"The app's own icon." = "The app's own icon.";
+"Your own image." = "Your own image.";
+"Choose…" = "Choose…";
+"Reset" = "Reset";
+"Invert the icon in Dark Mode" = "Invert the icon in Dark Mode";
+"For dark, single-colour icons." = "For dark, single-colour icons.";
+"Point to new notifications" = "Point to new notifications";
+"A big red arrow under the icon while the app is in the background." = "A big red arrow under the icon while the app is in the background.";
+"Stop Monitoring" = "Stop Monitoring";
+"Done" = "Done";
 
-"Show a red arrow so you don't miss any notifications! :)" = "Show a red arrow so you don't miss any notifications! :)";
-"Change icon" = "Change icon";
-
-"Invert the icon color on dark mode" = "Invert the icon color on dark mode";
+"Choose an app to monitor" = "Choose an app to monitor";
+"Search" = "Search";
+"Added" = "Added";
+"No app matches “%@”." = "No app matches “%@”.";
+"Choose from Finder…" = "Choose from Finder…";
+"Cancel" = "Cancel";
+"Add" = "Add";

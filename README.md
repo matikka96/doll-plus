@@ -33,16 +33,12 @@ Doll Plus does not have a release yet. Build it from source:
 Minimum system requirement: **_macOS 13.0_** (Ventura)
 
 ## Development builds
-The Debug configuration builds "Doll Plus Dev" with the bundle ID `com.matikka96.DollPlus.dev`. It has its own settings, its own Accessibility entry and no default hotkey, so it does not change the installed Doll Plus. Its config window title ends with "(Dev)".
+The Debug configuration builds "Doll Plus Dev" with the bundle ID `com.matikka96.DollPlus.dev`. It has its own settings, its own Accessibility entry and no default hotkey, so it does not change the installed Doll Plus. Its settings window has the title "Doll Plus Dev".
 
 `python3 -I scripts/e2e.py --help` lists the end-to-end commands. `python3 -I scripts/e2e.py clean-registrations` removes the Launch Services registrations of the development and test copies.
 
 # How to use?
-It's simple, click on "+" button at the left bottom corner, search and select the app you want to monitor:
-
-![Add monitor](./DollPlus/Docs/Images/usage-0.png)
-
-![Search and select](./DollPlus/Docs/Images/search-and-select.png)
+It's simple: in the settings window, click **+** under **Monitored apps**, search for the app you want to monitor, select it and click **Add**. An app that Spotlight does not find shows in the list while it runs, and **Choose from Finder…** picks any app.
 
 Then Doll Plus will ask for your permission to use the Accessibility API: 
 
@@ -64,9 +60,14 @@ Doll Plus also can show new notification as red badge, just like in dock!
 # I want to change the Monitor apps
 If the monitored app is running, click on the menu bar icon will simply open that app.
 
-But if you want to change stuffs, use right click, or left click while holding the "**_Option key(⌥)_**".
+But if you want to change stuffs, use right click, or left click while holding the "**_Option key(⌥)_**". This opens the settings window:
 
-![config.png](./DollPlus/Docs/Images/config.png)
+- **Monitored apps**: select an app and click **−**, or press Delete, to stop monitoring it. Double-click an app, or click its ⓘ button, to choose its menu bar icon, invert the icon in Dark Mode, or point to new notifications with a big red arrow.
+- **Menu bar**: show the badge as a number, a red badge or the icon only, and show, dim or hide the icon when there's nothing new.
+- **Alerts**: show an alert when the menu bar is hidden, for example while an app is full screen.
+- **General**: launch at login, and the shortcut that opens the settings window.
+
+When Doll Plus has no Accessibility permission, a banner at the top of the window opens the right page of System Settings.
 
 # Security concern about the permission?
 **_Never! Ever! Trust! Anybody! in Internet!_**
