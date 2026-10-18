@@ -1323,7 +1323,7 @@ def alert_two_screens(doll, a, screenshots):
 
 
 @scenario("With hide when nothing is coming, the status item comes back and the alert shows below it",
-          hide_when_empty=True, alerts=True, steals_focus=True, known_issue=45)
+          hide_when_empty=True, alerts=True, steals_focus=True)
 def alert_hidden_item(doll, a, screenshots):
     doll.wait_app(a, lambda app: not app["visible"], "the status item did not hide")
     start_text_fixture()
@@ -1334,6 +1334,20 @@ def alert_hidden_item(doll, a, screenshots):
         settled_status_item(doll, a)
         if (panel := doll.alert()) is None:
             raise EnvironmentProblem("the alert closed before the status item stopped its move")
+        assert_alert_below_item(doll, a, panel)
+
+
+@scenario("In full screen, the status item grows for a badge and the alert shows below it", alerts=True,
+          steals_focus=True)
+def alert_growing_item(doll, a, screenshots):
+    start_text_fixture()
+    settled_status_item(doll, a)
+    with full_screen(TEXT):
+        set_badge(a, "5")
+        doll.wait_alert("5")
+        settled_status_item(doll, a)
+        if (panel := doll.alert()) is None:
+            raise EnvironmentProblem("the alert closed before the status item stopped its growth")
         assert_alert_below_item(doll, a, panel)
 
 

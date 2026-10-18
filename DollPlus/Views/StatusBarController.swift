@@ -24,6 +24,7 @@ class StatusBarController {
     private var lastTimeShowingGiantBadge = Date()
     private var notificationPanel: NSPanel?
     private var notificationHideWork: DispatchWorkItem?
+    private var iconWindowObservers: [NSObjectProtocol] = []
 
     public var statusItem: NSStatusItem!
     public var monitoredApp: MonitoredApp? {
@@ -263,7 +264,9 @@ class StatusBarController {
         let size = hostingView.fittingSize
         let panel = notificationPanel ?? makeNotificationPanel()
         notificationPanel = panel
-        panel.setFrame(notificationFrame(size: size, below: iconWindow.frame, on: screen), display: false)
+        panel.setContentSize(size)
+        placeNotificationPanel(below: iconWindow, on: screen)
+        followIconWindow(on: screen)
         hostingView.frame = NSRect(origin: .zero, size: size)
         hostingView.autoresizingMask = [.width, .height]
         panel.contentView?.subviews = [hostingView]
@@ -277,6 +280,33 @@ class StatusBarController {
         DispatchQueue.main.asyncAfter(deadline: .now() + notificationDuration, execute: hideWork)
     }
 
+    // The menu bar moves or resizes the icon window after a show or a growth of the item (#45).
+    // No object filter, because AppKit can give the button a new window.
+    private func followIconWindow(on screen: NSScreen) {
+        stopFollowingIconWindow()
+        iconWindowObservers = [NSWindow.didMoveNotification, NSWindow.didResizeNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                guard let self, let iconWindow = statusItem.button?.window, notification.object as? NSWindow === iconWindow else {
+                    return
+                }
+                placeNotificationPanel(below: iconWindow, on: screen)
+            }
+        }
+    }
+
+    private func stopFollowingIconWindow() {
+        iconWindowObservers.forEach(NotificationCenter.default.removeObserver)
+        iconWindowObservers = []
+    }
+
+    // In full screen the menu bar moves the icon window above the screen, so the screen comes from the show.
+    private func placeNotificationPanel(below iconWindow: NSWindow, on screen: NSScreen) {
+        guard let panel = notificationPanel else {
+            return
+        }
+        panel.setFrame(notificationFrame(size: panel.frame.size, below: iconWindow.frame, on: screen), display: false)
+    }
+
     private func notificationFrame(size: NSSize, below iconFrame: NSRect, on screen: NSScreen) -> NSRect {
         let x = min(max(iconFrame.midX - size.width / 2, screen.frame.minX), screen.frame.maxX - size.width)
         let y = min(iconFrame.minY, screen.frame.maxY) - size.height
@@ -285,6 +315,7 @@ class StatusBarController {
 
     private func hideNotificationPanel() {
         notificationHideWork?.cancel()
+        stopFollowingIconWindow()
         notificationPanel?.orderOut(nil)
     }
 
