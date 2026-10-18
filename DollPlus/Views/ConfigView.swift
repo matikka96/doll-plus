@@ -61,9 +61,8 @@ struct ConfigView: View {
                 nothingNewPicker
                 Toggle(isOn: $hideWhenAppNotRunning) {
                     Text("Hide while the app isn't running")
-                    Text(LocalizedStringKey(iconOnly ? "Doesn't apply to Icon only." : "The icon comes back when the app starts."))
+                    Text("The icon comes back when the app starts.")
                 }
-                .disabled(iconOnly)
                 .accessibilityIdentifier("hideWhenAppNotRunning")
                 .onChange(of: hideWhenAppNotRunning) { enabled in
                     AppSettings.hideWhenAppNotRunning = enabled
@@ -244,15 +243,15 @@ struct ConfigView: View {
         switch badgeStyle {
         case .number: return "The number of new notifications, next to the icon."
         case .redBadge: return "A red badge on the icon, like in the Dock."
-        case .iconOnly: return "Only the icon. Some options below don't apply."
+        case .iconOnly: return "Only the icon, with no alerts."
         }
     }
 
     private var nothingNewPicker: some View {
-        Picker(selection: $nothingNewStyle.rejecting { iconOnly && $0 == .hide }) {
+        Picker(selection: $nothingNewStyle) {
             Text("Show").tag(NothingNewStyle.show)
             Text("Dim").tag(NothingNewStyle.dim)
-            Text("Hide").selectionDisabled(when: iconOnly).tag(NothingNewStyle.hide)
+            Text("Hide").tag(NothingNewStyle.hide)
         } label: {
             Text("When there's nothing new")
             Text(nothingNewHint)
@@ -269,7 +268,7 @@ struct ConfigView: View {
         switch nothingNewStyle {
         case .show: return "The icon stays as it is."
         case .dim: return "The icon is dimmed."
-        case .hide: return iconOnly ? "Hide doesn't apply to Icon only." : "The icon is hidden until something arrives."
+        case .hide: return "The icon is hidden until something arrives."
         }
     }
 
