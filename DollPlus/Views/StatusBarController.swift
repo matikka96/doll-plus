@@ -24,6 +24,7 @@ class StatusBarController {
     private var lastTimeShowingGiantBadge = Date()
     private var notificationPanel: NSPanel?
     private var notificationHideWork: DispatchWorkItem?
+    private var notificationScreen: NSScreen?
     private var iconWindowObservers: [NSObjectProtocol] = []
 
     public var statusItem: NSStatusItem!
@@ -39,6 +40,7 @@ class StatusBarController {
 
     init() {
         setupStatusBar()
+        followIconWindow()
     }
 
     func setupStatusBar(icon: NSImage? = nil) {
@@ -233,13 +235,8 @@ class StatusBarController {
             return
         }
 
-        var menubarOffset: CGFloat = 0
-        if Utils.currentActiveWindowIsFullScreen {
-            // In mac with notch, the menubar didn't affect window's size
-            menubarOffset = activeScreen.hasTopNotchDesign ? 0 : Utils.menubarHeight
-        }
-
-        giantBadgePanel.setFrameOrigin(NSPoint(x: iconFrame.midX - giantBadgeSize.width / 2, y: activeScreen.visibleFrame.maxY - giantBadgeSize.height + menubarOffset + giantBadgeYOffset))
+        // In full screen, visibleFrame still leaves out the menu bar (#62).
+        giantBadgePanel.setFrameOrigin(NSPoint(x: iconFrame.midX - giantBadgeSize.width / 2, y: activeScreen.visibleFrame.maxY - giantBadgeSize.height + giantBadgeYOffset))
     }
 
     func hideGiantBadge() {
@@ -265,8 +262,8 @@ class StatusBarController {
         let panel = notificationPanel ?? makeNotificationPanel()
         notificationPanel = panel
         panel.setContentSize(size)
+        notificationScreen = screen
         placeNotificationPanel(below: iconWindow, on: screen)
-        followIconWindow(on: screen)
         hostingView.frame = NSRect(origin: .zero, size: size)
         hostingView.autoresizingMask = [.width, .height]
         panel.contentView?.subviews = [hostingView]
@@ -280,17 +277,25 @@ class StatusBarController {
         DispatchQueue.main.asyncAfter(deadline: .now() + notificationDuration, execute: hideWork)
     }
 
-    // The menu bar moves or resizes the icon window after a show or a growth of the item (#45).
+    // The menu bar moves or resizes the icon window after a show or a growth of the item (#45, #61).
     // No object filter, because AppKit can give the button a new window.
-    private func followIconWindow(on screen: NSScreen) {
-        stopFollowingIconWindow()
+    private func followIconWindow() {
         iconWindowObservers = [NSWindow.didMoveNotification, NSWindow.didResizeNotification].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                 guard let self, let iconWindow = statusItem.button?.window, notification.object as? NSWindow === iconWindow else {
                     return
                 }
-                placeNotificationPanel(below: iconWindow, on: screen)
+                iconWindowDidChangeFrame(iconWindow)
             }
+        }
+    }
+
+    private func iconWindowDidChangeFrame(_ iconWindow: NSWindow) {
+        if giantBadgePanel.isVisible {
+            repositionGiantBadge()
+        }
+        if notificationPanel?.isVisible == true, let notificationScreen {
+            placeNotificationPanel(below: iconWindow, on: notificationScreen)
         }
     }
 
@@ -315,12 +320,12 @@ class StatusBarController {
 
     private func hideNotificationPanel() {
         notificationHideWork?.cancel()
-        stopFollowingIconWindow()
         notificationPanel?.orderOut(nil)
     }
 
     func destroy() {
         hideNotificationPanel()
+        stopFollowingIconWindow()
         if let monitoredApp = monitoredApp {
             MonitorService.unObserve(bundleId: monitoredApp.bundleId)
             MonitorEngine.shared.unMonitor(app: monitoredApp)
@@ -405,9 +410,5 @@ extension NSScreen {
         })
 
         return screenWithMouse
-    }
-    var hasTopNotchDesign: Bool {
-        guard #available(macOS 12, *) else { return false }
-        return safeAreaInsets.top != 0
     }
 }

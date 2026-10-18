@@ -12,7 +12,7 @@ class GiantBadgeViewController: ObservableObject {
     @Published var animationFlag = false
 }
 
-let giantBadgeSize = NSSize(width: 1000, height: 800)
+let giantBadgeSize = NSSize(width: 500, height: 400)
 let giantBadgeYOffset: CGFloat = 10
 
 struct GiantBadgeView: View {
@@ -28,7 +28,7 @@ struct GiantBadgeView: View {
     var body: some View {
         VStack {
             Image(systemName: "arrowshape.turn.up.left.fill")
-                .font(.system(size: 500))
+                .font(.system(size: 250))
                 .foregroundColor(.red)
                 .rotationEffect(.degrees(90))
                 .scaleEffect(scale, anchor: .top)

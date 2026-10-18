@@ -69,15 +69,17 @@ DEMO_BADGES = ("", "1", "12", "123", "new")
 DEMO_STEP = 3.0
 # NSWindow.Level.popUpMenu, the level of the arrow panel and the alert panel.
 PANEL_LAYER = 101
-ARROW_SIZE = (1000, 800)
+ARROW_SIZE = (500, 400)
 ALERT_DURATION = 3.0
 CLICK_CLOSE_TIMEOUT = 1.0
 ALERT_CLOSE_SLACK = 1.0
-ALERT_CENTER_TOLERANCE = 2
+CENTER_TOLERANCE = 2
 HOVER_DURATION = 3.0
 FULL_SCREEN_SETTLE = 1.5
 TEXT_WINDOW_SIZE = (480, 160)
 ARROW_CLICK_BELOW_ITEM = 150
+# Longer than the move of a status item that grows, shorter than the next badge poll.
+ARROW_SETTLE = 0.6
 # About 3 s at the key interval of the UI driver.
 KEYS_ACROSS_ALERT = "abcdefghijklmnopqrstuvwxyz" * 4
 
@@ -1229,6 +1231,34 @@ def arrow_click_through(doll, a, screenshots):
                what=f"the click on the arrow did not reach the {TEXT.dock_title} window below it")
 
 
+def arrow_after_growth(doll, a, badge: str) -> Rect:
+    set_badge(a, badge)
+    wait_until(doll.arrow, what="the giant arrow did not show")
+    time.sleep(ARROW_SETTLE)
+    arrow, item = doll.arrow(), doll.status_item(a)
+    if arrow is None:
+        raise EnvironmentProblem("the giant arrow closed before the status item stopped its growth")
+    if abs(arrow.center[0] - item.center[0]) > CENTER_TOLERANCE:
+        raise CheckFailed(f"the giant arrow {arrow} is not centered on the status item {item}")
+    return arrow
+
+
+@scenario("The giant arrow shows centered on a status item that grows, and at the same height in full screen",
+          alerts=True, steals_focus=True)
+def arrow_placement(doll, a, screenshots):
+    start_text_fixture()
+    # Doll Plus places the arrow on the screen with the pointer (#49).
+    move_pointer(screen_of(settled_status_item(doll, a)).center)
+    normal = arrow_after_growth(doll, a, "3")
+    set_badge(a, "")
+    wait_until(lambda: doll.arrow() is None, what="the giant arrow did not hide after the badge cleared")
+    settled_status_item(doll, a)
+    with full_screen(TEXT):
+        full = arrow_after_growth(doll, a, "5")
+    if full.y != normal.y:
+        raise CheckFailed(f"the giant arrow is at y {full.y:.0f} in full screen and at y {normal.y:.0f} in normal mode")
+
+
 def assert_alert_below_item(doll, fixture: Fixture, panel: Rect):
     item = doll.status_item(fixture)
     screen = next((s for s in screens() if s.contains(panel.center)), None)
@@ -1237,7 +1267,7 @@ def assert_alert_below_item(doll, fixture: Fixture, panel: Rect):
     # Doll Plus keeps the alert on the screen when a full-screen space hides the menu bar.
     top = max(item.max_y, screen.y)
     clamped = panel.x <= screen.x or panel.max_x >= screen.max_x
-    centered = abs(panel.center[0] - item.center[0]) <= ALERT_CENTER_TOLERANCE
+    centered = abs(panel.center[0] - item.center[0]) <= CENTER_TOLERANCE
     if abs(panel.y - top) > 1 or not (centered or (clamped and panel.x <= item.center[0] <= panel.max_x)):
         raise CheckFailed(f"the alert {panel} is not below the status item {item}")
 
