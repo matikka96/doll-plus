@@ -8,8 +8,6 @@ private let accessibilitySettingsURL = URL(string: "x-apple.systempreferences:co
 // Five rows. A longer list scrolls, so the window fits on a laptop screen.
 private let monitoredAppListMaxHeight: CGFloat = 170
 private let emptyListHeight: CGFloat = 44
-// As in the list of Login Items in System Settings.
-private let listFooterHeight: CGFloat = 24
 
 private enum ConfigSheet: Identifiable {
     case add
@@ -51,6 +49,7 @@ struct ConfigView: View {
 
             Section {
                 monitoredAppList
+                listButtons
             } header: {
                 Text("Monitored apps")
             } footer: {
@@ -159,7 +158,6 @@ struct ConfigView: View {
         }
     }
 
-    // The Form gives a List no row insets, so the footer goes in a padding of the List and not in a VStack.
     private var monitoredAppList: some View {
         List(selection: $selection) {
             ForEach(items) { item in
@@ -189,14 +187,6 @@ struct ConfigView: View {
         .scrollDisabled(false)
         .frame(minHeight: items.isEmpty ? emptyListHeight : nil, maxHeight: monitoredAppListMaxHeight)
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.bottom, listFooterHeight)
-        .overlay(alignment: .bottom) {
-            VStack(spacing: 0) {
-                Divider()
-                listButtons
-            }
-            .frame(height: listFooterHeight)
-        }
     }
 
     private var listButtons: some View {
@@ -228,8 +218,6 @@ struct ConfigView: View {
             Spacer()
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 10)
-        .frame(maxHeight: .infinity)
     }
 
     private var badgePicker: some View {

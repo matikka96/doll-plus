@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let sheetPadding: CGFloat = 20
+
 struct AppSheet: View {
     let app: MonitoredApp
 
@@ -17,7 +19,8 @@ struct AppSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        // The grouped Form has its own 20 pt margin, so the sheet padding goes only on the header and the buttons.
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 Image(nsImage: Storage.appIcon(for: app.bundleId))
                     .resizable()
@@ -33,6 +36,7 @@ struct AppSheet: View {
                     }
                 }
             }
+            .padding([.horizontal, .top], sheetPadding)
 
             Form {
                 SettingRow("Menu bar icon", hint: hasCustomIcon ? "Your own image." : "The app's own icon.") { _ in
@@ -86,8 +90,8 @@ struct AppSheet: View {
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("done")
             }
+            .padding([.horizontal, .bottom], sheetPadding)
         }
-        .padding(20)
         .frame(width: 440)
     }
 
