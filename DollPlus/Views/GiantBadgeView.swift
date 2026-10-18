@@ -28,7 +28,7 @@ struct GiantBadgeView: View {
     var body: some View {
         VStack {
             Image(systemName: "arrowshape.turn.up.left.fill")
-                .font(.system(size: 250))
+                .font(.system(size: giantBadgeSize.width / 2))
                 .foregroundColor(.red)
                 .rotationEffect(.degrees(90))
                 .scaleEffect(scale, anchor: .top)

@@ -43,6 +43,10 @@ class StatusBarController {
         followIconWindow()
     }
 
+    deinit {
+        stopFollowingIconWindow()
+    }
+
     func setupStatusBar(icon: NSImage? = nil) {
         statusBar = .system
         statusItem = statusBar.statusItem(withLength: defaultIconSize)
@@ -122,6 +126,7 @@ class StatusBarController {
                 self?.updateBadgeText(badge)
             }
 
+            // The arrow goes to the screen with the pointer (#49).
             if self?.giantBadgePanel.isVisible == true {
                 self?.repositionGiantBadge()
             }
@@ -235,7 +240,7 @@ class StatusBarController {
             return
         }
 
-        // In full screen, visibleFrame still leaves out the menu bar (#62).
+        // On macOS 26, visibleFrame leaves out the menu bar also in full screen (#62).
         giantBadgePanel.setFrameOrigin(NSPoint(x: iconFrame.midX - giantBadgeSize.width / 2, y: activeScreen.visibleFrame.maxY - giantBadgeSize.height + giantBadgeYOffset))
     }
 
@@ -320,6 +325,7 @@ class StatusBarController {
 
     private func hideNotificationPanel() {
         notificationHideWork?.cancel()
+        notificationScreen = nil
         notificationPanel?.orderOut(nil)
     }
 

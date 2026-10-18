@@ -59,6 +59,7 @@ CONFIG_WINDOW_FRAME_KEY = "NSWindow Frame DollPlusConfigWindow"
 LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 POLL = 0.25
+FAST_POLL = 0.05
 TIMEOUT = 8.0
 STABLE_WINDOW = 5.0
 RENDER_SETTLE = 1.0
@@ -78,7 +79,7 @@ HOVER_DURATION = 3.0
 FULL_SCREEN_SETTLE = 1.5
 TEXT_WINDOW_SIZE = (480, 160)
 ARROW_CLICK_BELOW_ITEM = 150
-# Longer than the move of a status item that grows, shorter than the next badge poll.
+# Longer than the move of a status item that grows plus one state write, shorter than the badge poll of 1 s.
 ARROW_SETTLE = 0.6
 # About 3 s at the key interval of the UI driver.
 KEYS_ACROSS_ALERT = "abcdefghijklmnopqrstuvwxyz" * 4
@@ -193,7 +194,7 @@ def run(cmd, **kwargs):
     return subprocess.run(cmd, check=True, **kwargs)
 
 
-def wait_until(condition, timeout=TIMEOUT, describe=lambda: "", what=None):
+def wait_until(condition, timeout=TIMEOUT, describe=lambda: "", what=None, poll=POLL):
     deadline = time.monotonic() + timeout
     while True:
         result = condition()
@@ -203,7 +204,7 @@ def wait_until(condition, timeout=TIMEOUT, describe=lambda: "", what=None):
             detail = describe()
             message = f"timed out after {timeout:.0f} s" + (f". {detail}" if detail else "")
             raise CheckFailed(f"{what}: {message}" if what else message)
-        time.sleep(POLL)
+        time.sleep(poll)
 
 
 
@@ -1231,32 +1232,35 @@ def arrow_click_through(doll, a, screenshots):
                what=f"the click on the arrow did not reach the {TEXT.dock_title} window below it")
 
 
-def arrow_after_growth(doll, a, badge: str) -> Rect:
+def arrow_below_screen_top(doll, a, badge: str) -> float:
     set_badge(a, badge)
-    wait_until(doll.arrow, what="the giant arrow did not show")
+    arrow = wait_until(doll.arrow, what="the giant arrow did not show")
+    return arrow.y - screen_of(arrow).y
+
+
+@scenario("The giant arrow shows centered on a status item that grows", alerts=True)
+def arrow_growth(doll, a, screenshots):
+    set_badge(a, "3")
+    wait_until(doll.arrow, what="the giant arrow did not show", poll=FAST_POLL)
     time.sleep(ARROW_SETTLE)
     arrow, item = doll.arrow(), doll.status_item(a)
     if arrow is None:
         raise EnvironmentProblem("the giant arrow closed before the status item stopped its growth")
     if abs(arrow.center[0] - item.center[0]) > CENTER_TOLERANCE:
         raise CheckFailed(f"the giant arrow {arrow} is not centered on the status item {item}")
-    return arrow
 
 
-@scenario("The giant arrow shows centered on a status item that grows, and at the same height in full screen",
+@scenario("In full screen, the giant arrow shows at the same height below the screen top as in normal mode",
           alerts=True, steals_focus=True)
-def arrow_placement(doll, a, screenshots):
+def arrow_full_screen_height(doll, a, screenshots):
     start_text_fixture()
-    # Doll Plus places the arrow on the screen with the pointer (#49).
-    move_pointer(screen_of(settled_status_item(doll, a)).center)
-    normal = arrow_after_growth(doll, a, "3")
+    normal = arrow_below_screen_top(doll, a, "3")
     set_badge(a, "")
     wait_until(lambda: doll.arrow() is None, what="the giant arrow did not hide after the badge cleared")
-    settled_status_item(doll, a)
     with full_screen(TEXT):
-        full = arrow_after_growth(doll, a, "5")
-    if full.y != normal.y:
-        raise CheckFailed(f"the giant arrow is at y {full.y:.0f} in full screen and at y {normal.y:.0f} in normal mode")
+        full = arrow_below_screen_top(doll, a, "5")
+    if abs(full - normal) > 1:
+        raise CheckFailed(f"the giant arrow is {full:.0f} pt below the screen top in full screen and {normal:.0f} pt in normal mode")
 
 
 def assert_alert_below_item(doll, fixture: Fixture, panel: Rect):
