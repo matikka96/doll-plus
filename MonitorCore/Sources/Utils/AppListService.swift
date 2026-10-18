@@ -16,6 +16,8 @@ public struct AppInfo {
 
 public class AppListService {
     var query = NSMetadataQuery()
+    // By default the query gathers on the main thread. The icons of all apps then delay the drawing of the add sheet.
+    private let queryQueue = OperationQueue()
 
     @Published public var listOfInstalledApplication: [AppInfo] = []
 
@@ -36,7 +38,10 @@ public class AppListService {
             let predicate = NSPredicate(format: "kMDItemContentType == 'com.apple.application-bundle'")
             NotificationCenter.default.addObserver(self, selector: #selector(queryDidFinish(_:)), name: NSNotification.Name.NSMetadataQueryDidFinishGathering, object: query)
             query.predicate = predicate
-            query.start()
+            query.operationQueue = queryQueue
+            queryQueue.addOperation { [query] in
+                query.start()
+            }
         }
     }
 
@@ -66,8 +71,11 @@ public class AppListService {
             }
         }
 
-        listOfInstalledApplication = appListDict.map {
+        let apps = appListDict.map {
             $0.value
+        }
+        DispatchQueue.main.async {
+            self.listOfInstalledApplication = apps
         }
 
         query.stop()
