@@ -508,13 +508,14 @@ def restart_dock():
 
 class DollPlus:
     def __init__(self, scenario: str, fixtures, red_badge: bool, hide_when_empty: bool = False, alerts: bool = False,
-                 ui_settings: bool = False, binary: Path = APP_BINARY):
+                 ui_settings: bool = False, icon_only: bool = False, binary: Path = APP_BINARY):
         self.scenario = scenario
         self.fixtures = fixtures
         self.red_badge = red_badge
         self.hide_when_empty = hide_when_empty
         self.alerts = alerts
         self.ui_settings = ui_settings
+        self.icon_only = icon_only
         self.binary = binary
         self.process = None
 
@@ -537,7 +538,7 @@ class DollPlus:
         settings = {
             "SETTING_MONITORED_APP_IDS": ",".join(f.bundle_id for f in self.fixtures),
             "SETTINGS_Show_As_Red_Badge": self.red_badge,
-            "SETTINGS_Show_Only_App_Icon": False,
+            "SETTINGS_Show_Only_App_Icon": self.icon_only,
             "SETTINGS_Hide_When_App_Not_Running": False,
             "SETTINGS_Hide_When_Nothing_Coming": self.hide_when_empty,
             "SETTINGS_Grayout_Icon_When_Nothing_Coming": False,
@@ -592,6 +593,9 @@ class DollPlus:
 
     def config_rows(self):
         return self._config("rows")
+
+    def config_texts(self) -> list[str]:
+        return self._config("texts")["texts"]
 
     def select_row(self, name: str):
         self._config("select", name)
@@ -734,16 +738,17 @@ class Scenario:
     steals_focus: bool = False
     alerts: bool = False
     ui_settings: bool = False
+    icon_only: bool = False
 
 
 SCENARIOS: list[Scenario] = []
 
 
 def scenario(summary, fixtures=("a",), known_issue=None, red_badge=False, hide_when_empty=False, steals_focus=False,
-             alerts=False, ui_settings=False):
+             alerts=False, ui_settings=False, icon_only=False):
     def register(body):
         SCENARIOS.append(Scenario(body.__name__.replace("_", "-"), summary, tuple(FIXTURES[k] for k in fixtures), body,
-                                  known_issue, red_badge, hide_when_empty, steals_focus, alerts, ui_settings))
+                                  known_issue, red_badge, hide_when_empty, steals_focus, alerts, ui_settings, icon_only))
         return body
     return register
 
@@ -995,6 +1000,33 @@ def nothing_new_picker(doll, a, screenshots):
     doll.wait_app(a, lambda app: not app["visible"], "the status item is not hidden")
     doll.pick("nothingNewStyle", "Show")
     doll.wait_app(a, lambda app: app["visible"] and app["imageDigest"] == shown, "the status item does not show as before")
+
+
+@scenario("With Icon only and Hide, an empty badge hides the status item, and a badge shows it with no number",
+          hide_when_empty=True, icon_only=True)
+def icon_only_hide(doll, a, screenshots):
+    hide_status_item(doll, a)
+    set_badge(a, "3")
+    wait_dock_label(a, "3")
+    app = doll.wait_app(a, lambda app: app["badge"] == "3" and app["visible"], "the badge '3' did not show the status item")
+    if app["title"] != "" or app["redBadgeLabel"] is not None:
+        raise CheckFailed(f"the status item shows a number: {app}")
+
+
+@scenario("With Icon only, the hide switch and the Hide segment are enabled, and the alert switch is disabled",
+          steals_focus=True, ui_settings=True, icon_only=True)
+def icon_only_controls(doll, a, screenshots):
+    if not doll.enabled("hideWhenAppNotRunning"):
+        raise CheckFailed("the switch 'Hide while the app isn't running' is disabled with Icon only")
+    if doll.enabled("showAlertInFullScreenMode"):
+        raise CheckFailed("the switch 'Show alerts when the menu bar is hidden' is enabled with Icon only")
+    if (hints := [t for t in doll.config_texts() if "Doesn't apply" in t]) != ["Doesn't apply to Icon only."]:
+        raise CheckFailed(f"the config window shows the hints {hints}, expected only the hint of the alert switch")
+    set_badge(a, "")
+    wait_dock_label(a, "")
+    doll.wait_badge(a, "")
+    doll.pick("nothingNewStyle", "Hide")
+    doll.wait_app(a, lambda app: not app["visible"], "the Hide segment did not hide the status item")
 
 
 @scenario("The red arrow switch of the app sheet shows the arrow for a new badge", steals_focus=True, ui_settings=True)
@@ -1320,7 +1352,7 @@ def reset_fixtures(fixtures):
 def scenario_outcome(s: Scenario, screenshots: bool) -> tuple[str, str]:
     try:
         reset_fixtures(s.fixtures)
-        with DollPlus(s.name, s.fixtures, s.red_badge, s.hide_when_empty, s.alerts, s.ui_settings) as doll:
+        with DollPlus(s.name, s.fixtures, s.red_badge, s.hide_when_empty, s.alerts, s.ui_settings, s.icon_only) as doll:
             s.body(doll, *s.fixtures, screenshots)
         return ("XPASS" if s.known_issue else "PASS"), ""
     except ScenarioSkipped as reason:

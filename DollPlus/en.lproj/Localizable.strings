@@ -25,7 +25,7 @@
 "Icon only" = "Icon only";
 "The number of new notifications, next to the icon." = "The number of new notifications, next to the icon.";
 "A red badge on the icon, like in the Dock." = "A red badge on the icon, like in the Dock.";
-"Only the icon. Some options below don't apply." = "Only the icon. Some options below don't apply.";
+"Only the icon, with no alerts." = "Only the icon, with no alerts.";
 "When there's nothing new" = "When there's nothing new";
 "Show" = "Show";
 "Dim" = "Dim";
@@ -33,14 +33,13 @@
 "The icon stays as it is." = "The icon stays as it is.";
 "The icon is dimmed." = "The icon is dimmed.";
 "The icon is hidden until something arrives." = "The icon is hidden until something arrives.";
-"Hide doesn't apply to Icon only." = "Hide doesn't apply to Icon only.";
 "Hide while the app isn't running" = "Hide while the app isn't running";
 "The icon comes back when the app starts." = "The icon comes back when the app starts.";
-"Doesn't apply to Icon only." = "Doesn't apply to Icon only.";
 
 "Alerts" = "Alerts";
 "Show alerts when the menu bar is hidden" = "Show alerts when the menu bar is hidden";
 "For example, while an app is full screen." = "For example, while an app is full screen.";
+"Doesn't apply to Icon only." = "Doesn't apply to Icon only.";
 
 "General" = "General";
 "Launch at login" = "Launch at login";

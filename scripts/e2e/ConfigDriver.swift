@@ -141,8 +141,12 @@ func sheet(of window: AXUIElement) -> AXUIElement? {
     children(of: window).first { role($0) == "AXSheet" }
 }
 
+func texts(in element: AXUIElement) -> [String] {
+    descendants(of: element).filter { role($0) == kAXStaticTextRole }.compactMap { attribute($0, kAXValueAttribute) as? String }
+}
+
 let usage = """
-usage: config-driver PID rows | select NAME | open NAME | sheet | toggle ID | pick ID LABEL | press ID | enabled ID
+usage: config-driver PID rows | texts | select NAME | open NAME | sheet | toggle ID | pick ID LABEL | press ID | enabled ID
        | remove NAME | add NAME | frame | show | move DX DY | close | activate
 """
 let arguments = CommandLine.arguments
@@ -188,6 +192,8 @@ func showConfigWindow() -> AXUIElement {
 switch (arguments[2], arguments.count > 3 ? arguments[3] : nil) {
 case ("rows", nil):
     printJSON(rows(in: showConfigWindow()).map { ["name": $0.name, "selected": isSelected($0)] })
+case ("texts", nil):
+    printJSON(["texts": texts(in: showConfigWindow())])
 case ("frame", nil):
     printJSON(["frame": frameJSON(configWindow().flatMap(frame(of:)))])
 case ("show", nil):
@@ -226,8 +232,8 @@ case ("open", let name?):
     waitFor("the sheet of \(name)") { sheet(of: window) }
     printJSON(["ok": true])
 case ("sheet", nil):
-    let texts = sheet(of: showConfigWindow()).map { descendants(of: $0).filter { role($0) == kAXStaticTextRole } } ?? []
-    printJSON(["open": sheet(of: showConfigWindow()) != nil, "texts": texts.compactMap { attribute($0, kAXValueAttribute) as? String }])
+    let sheetTexts = sheet(of: showConfigWindow()).map(texts(in:)) ?? []
+    printJSON(["open": sheet(of: showConfigWindow()) != nil, "texts": sheetTexts])
 case ("toggle", let id?):
     let window = showConfigWindow()
     let value = { element(id, in: window).flatMap { attribute($0, kAXValueAttribute) as? Int } }
