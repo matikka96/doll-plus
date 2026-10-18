@@ -31,6 +31,7 @@
 		B09C303728536AF9004CC54F /* Monitor in Frameworks */ = {isa = PBXBuildFile; productRef = B09C303628536AF9004CC54F /* Monitor */; };
 		B09C303928536AF9004CC54F /* Utils in Frameworks */ = {isa = PBXBuildFile; productRef = B09C303828536AF9004CC54F /* Utils */; };
 		B09C303B285380DC004CC54F /* ConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C303A285380DC004CC54F /* ConfigView.swift */; };
+		5D1E0A7C3B9F42E6A8C1D058 /* SettingRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1E0A7C3B9F42E6A8C1D059 /* SettingRow.swift */; };
 		B0CC3C83285393B0006F6361 /* AppSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C82285393B0006F6361 /* AppSheet.swift */; };
 		B0CC3C8B285393B0006F6361 /* AddAppSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C8A285393B0006F6361 /* AddAppSheet.swift */; };
 		B0CC3C8D285393B0006F6361 /* MonitoredAppStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C8C285393B0006F6361 /* MonitoredAppStatus.swift */; };
@@ -66,6 +67,7 @@
 		89CB808D27A36A780065CA70 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		B09C303528536AEC004CC54F /* MonitorCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = MonitorCore; sourceTree = "<group>"; };
 		B09C303A285380DC004CC54F /* ConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigView.swift; sourceTree = "<group>"; };
+		5D1E0A7C3B9F42E6A8C1D059 /* SettingRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingRow.swift; sourceTree = "<group>"; };
 		B0CC3C82285393B0006F6361 /* AppSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSheet.swift; sourceTree = "<group>"; };
 		B0CC3C8A285393B0006F6361 /* AddAppSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAppSheet.swift; sourceTree = "<group>"; };
 		B0CC3C8C285393B0006F6361 /* MonitoredAppStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitoredAppStatus.swift; sourceTree = "<group>"; };
@@ -170,6 +172,7 @@
 				89CB807A27A312F10065CA70 /* ApplicationListView.swift */,
 				3A05F1218D99BE11708A20CF /* NotificationView.swift */,
 				B09C303A285380DC004CC54F /* ConfigView.swift */,
+				5D1E0A7C3B9F42E6A8C1D059 /* SettingRow.swift */,
 				B0CC3C82285393B0006F6361 /* AppSheet.swift */,
 				B0CC3C8A285393B0006F6361 /* AddAppSheet.swift */,
 				893D12FF296DC5CB0071F166 /* GiantBadgeView.swift */,
@@ -273,6 +276,7 @@
 				89CB808627A313650065CA70 /* DollApplication.swift in Sources */,
 				89CB808227A312F10065CA70 /* MonitorEngine.swift in Sources */,
 				B09C303B285380DC004CC54F /* ConfigView.swift in Sources */,
+				5D1E0A7C3B9F42E6A8C1D058 /* SettingRow.swift in Sources */,
 				89CB807D27A312F10065CA70 /* ViewExtensions.swift in Sources */,
 				89CB807F27A312F10065CA70 /* StatusBarController.swift in Sources */,
 				893D1302296EF6AC0071F166 /* Storage.swift in Sources */,

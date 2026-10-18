@@ -23,8 +23,8 @@
 "Number" = "数字";
 "Red badge" = "红色角标";
 "Icon only" = "仅图标";
-"The number of new notifications, next to the icon." = "在图标旁显示新通知的数量。";
-"A red badge on the icon, like in the Dock." = "像 Dock 一样在图标上显示红色角标。";
+"Number next to the icon." = "在图标旁显示数字。";
+"Red badge on the icon." = "在图标上显示红色角标。";
 "Only the icon, with no alerts." = "只显示图标，不显示提醒。";
 "When there's nothing new" = "没有新消息时";
 "Show" = "显示";
@@ -46,7 +46,7 @@
 "Shortcut to open this window" = "打开此窗口的快捷键";
 "Click the field, then press the keys." = "点击输入框，然后按下按键。";
 "About" = "关于";
-"Quit %@" = "退出 %@";
+"Quit" = "退出";
 
 "Version %@" = "版本 %@";
 "Shows the Dock badges of your apps in the menu bar. Based on [Doll](https://github.com/xiaogdgenuine/Doll)." = "在菜单栏中显示应用的 Dock 标记。基于 [Doll](https://github.com/xiaogdgenuine/Doll)。";

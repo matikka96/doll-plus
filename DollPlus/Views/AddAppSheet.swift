@@ -61,7 +61,8 @@ struct AddAppSheet: View {
         .onAppear {
             AppListService.shared.setup()
         }
-        .onReceive(AppListService.shared.$listOfInstalledApplication) { installedApps in
+        // @Published sends its current value at once. receive(on:) delays it, so the sheet slides in before it builds the rows.
+        .onReceive(AppListService.shared.$listOfInstalledApplication.receive(on: DispatchQueue.main)) { installedApps in
             var appsById: [String: AppInfo] = [:]
             for app in installedApps + AppListService.runningApplications {
                 appsById[app.bundleId] = appsById[app.bundleId] ?? app
