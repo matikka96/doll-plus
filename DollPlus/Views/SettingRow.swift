@@ -5,12 +5,12 @@ import SwiftUI
 struct SettingRow<Control: View>: View {
     let title: LocalizedStringKey
     let hint: LocalizedStringKey?
-    let control: (LocalizedStringKey) -> Control
+    let control: Control
 
-    init(_ title: LocalizedStringKey, hint: LocalizedStringKey? = nil, @ViewBuilder control: @escaping (LocalizedStringKey) -> Control) {
+    init(_ title: LocalizedStringKey, hint: LocalizedStringKey? = nil, @ViewBuilder control: (LocalizedStringKey) -> Control) {
         self.title = title
         self.hint = hint
-        self.control = control
+        self.control = control(title)
     }
 
     var body: some View {
@@ -27,8 +27,9 @@ struct SettingRow<Control: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             // VoiceOver still reads the hidden label.
-            control(title)
+            control
                 .labelsHidden()
+                .accessibilityHint(hint ?? "")
                 .fixedSize()
         }
     }
