@@ -35,7 +35,7 @@ struct AppSheet: View {
             }
 
             Form {
-                LabeledContent {
+                SettingRow("Menu bar icon", hint: hasCustomIcon ? "Your own image." : "The app's own icon.") { _ in
                     HStack {
                         if hasCustomIcon {
                             Button("Reset", action: resetIcon)
@@ -44,28 +44,23 @@ struct AppSheet: View {
                         Button("Choose…", action: pickIconFile)
                             .accessibilityIdentifier("chooseIcon")
                     }
-                } label: {
-                    Text("Menu bar icon")
-                    Text(LocalizedStringKey(hasCustomIcon ? "Your own image." : "The app's own icon."))
                 }
 
-                Toggle(isOn: $iconIsMask) {
-                    Text("Invert the icon in Dark Mode")
-                    Text("For dark, single-colour icons.")
-                }
-                .accessibilityIdentifier("iconIsMask")
-                .onChange(of: iconIsMask) { enabled in
-                    AppSettings.toggleIconMask(for: app.bundleId, value: enabled)
-                    refreshIcons()
+                SettingRow("Invert the icon in Dark Mode", hint: "For dark, single-colour icons.") { title in
+                    Toggle(title, isOn: $iconIsMask)
+                        .accessibilityIdentifier("iconIsMask")
+                        .onChange(of: iconIsMask) { enabled in
+                            AppSettings.toggleIconMask(for: app.bundleId, value: enabled)
+                            refreshIcons()
+                        }
                 }
 
-                Toggle(isOn: $showGiantBadge) {
-                    Text("Point to new notifications")
-                    Text("A big red arrow under the icon while the app is in the background.")
-                }
-                .accessibilityIdentifier("giantBadge")
-                .onChange(of: showGiantBadge) { enabled in
-                    AppSettings.toggleGiantBadge(for: app.bundleId, value: enabled)
+                SettingRow("Point to new notifications", hint: "A big red arrow under the icon while the app is in the background.") { title in
+                    Toggle(title, isOn: $showGiantBadge)
+                        .accessibilityIdentifier("giantBadge")
+                        .onChange(of: showGiantBadge) { enabled in
+                            AppSettings.toggleGiantBadge(for: app.bundleId, value: enabled)
+                        }
                 }
             }
             .formStyle(.grouped)

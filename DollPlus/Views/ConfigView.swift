@@ -7,6 +7,9 @@ import KeyboardShortcuts
 private let accessibilitySettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
 // Five rows. A longer list scrolls, so the window fits on a laptop screen.
 private let monitoredAppListMaxHeight: CGFloat = 170
+private let emptyListHeight: CGFloat = 44
+// As in the list of Login Items in System Settings.
+private let listFooterHeight: CGFloat = 24
 
 private enum ConfigSheet: Identifiable {
     case add
@@ -48,7 +51,6 @@ struct ConfigView: View {
 
             Section {
                 monitoredAppList
-                listButtons
             } header: {
                 Text("Monitored apps")
             } footer: {
@@ -59,49 +61,48 @@ struct ConfigView: View {
             Section("Menu bar") {
                 badgePicker
                 nothingNewPicker
-                Toggle(isOn: $hideWhenAppNotRunning) {
-                    Text("Hide while the app isn't running")
-                    Text("The icon comes back when the app starts.")
-                }
-                .accessibilityIdentifier("hideWhenAppNotRunning")
-                .onChange(of: hideWhenAppNotRunning) { enabled in
-                    AppSettings.hideWhenAppNotRunning = enabled
+                SettingRow("Hide while the app isn't running", hint: "The icon comes back when the app starts.") { title in
+                    Toggle(title, isOn: $hideWhenAppNotRunning)
+                        .accessibilityIdentifier("hideWhenAppNotRunning")
+                        .onChange(of: hideWhenAppNotRunning) { enabled in
+                            AppSettings.hideWhenAppNotRunning = enabled
+                        }
                 }
             }
 
             Section("Alerts") {
-                Toggle(isOn: $showAlertInFullScreenMode) {
-                    Text("Show alerts when the menu bar is hidden")
-                    Text(LocalizedStringKey(iconOnly ? "Doesn't apply to Icon only." : "For example, while an app is full screen."))
+                SettingRow("Show alerts when the menu bar is hidden",
+                           hint: iconOnly ? "Doesn't apply to Icon only." : "For example, while an app is full screen.") { title in
+                    Toggle(title, isOn: $showAlertInFullScreenMode)
+                        .accessibilityIdentifier("showAlertInFullScreenMode")
+                        .onChange(of: showAlertInFullScreenMode) { enabled in
+                            AppSettings.showAlertInFullScreenMode = enabled
+                        }
                 }
                 .disabled(iconOnly)
-                .accessibilityIdentifier("showAlertInFullScreenMode")
-                .onChange(of: showAlertInFullScreenMode) { enabled in
-                    AppSettings.showAlertInFullScreenMode = enabled
-                }
             }
 
             Section {
-                Toggle("Launch at login", isOn: $launchAtLogin)
-                    .accessibilityIdentifier("launchAtLogin")
-                    .onChange(of: launchAtLogin) { enabled in
-                        do {
-                            if enabled {
-                                try SMAppService.mainApp.register()
-                            } else {
-                                try SMAppService.mainApp.unregister()
+                SettingRow("Launch at login") { title in
+                    Toggle(title, isOn: $launchAtLogin)
+                        .accessibilityIdentifier("launchAtLogin")
+                        .onChange(of: launchAtLogin) { enabled in
+                            do {
+                                if enabled {
+                                    try SMAppService.mainApp.register()
+                                } else {
+                                    try SMAppService.mainApp.unregister()
+                                }
+                            } catch {
+                                print("Error while updating launch at login", error)
+                                launchAtLogin = SMAppService.mainApp.status == .enabled
                             }
-                        } catch {
-                            print("Error while updating launch at login", error)
-                            launchAtLogin = SMAppService.mainApp.status == .enabled
                         }
-                    }
-                LabeledContent {
+                }
+                SettingRow("Shortcut to open this window", hint: "Click the field, then press the keys.") { title in
                     KeyboardShortcuts.Recorder(for: .toggleConfigWindow)
+                        .accessibilityLabel(title)
                         .accessibilityIdentifier("toggleConfigWindowShortcut")
-                } label: {
-                    Text("Shortcut to open this window")
-                    Text("Click the field, then press the keys.")
                 }
             } header: {
                 Text("General")
@@ -139,7 +140,7 @@ struct ConfigView: View {
     }
 
     private var accessibilityBanner: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.yellow)
                 .font(.title2)
@@ -158,36 +159,43 @@ struct ConfigView: View {
         }
     }
 
-    @ViewBuilder
+    // The Form gives a List no row insets, so the footer goes in a padding of the List and not in a VStack.
     private var monitoredAppList: some View {
-        if items.isEmpty {
-            Text("No apps yet. Click + to choose one.")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-        } else {
-            List(selection: $selection) {
-                ForEach(items) { item in
-                    MonitoredAppItemView(appItem: item, iconRevision: iconRevision) {
-                        selection = item.id
-                        sheet = .app(item)
-                    }
-                }
-            }
-            .contextMenu(forSelectionType: MonitoredApp.ID.self) { ids in
-                Button("Remove") {
-                    remove(ids)
-                }
-            } primaryAction: { ids in
-                if let item = items.first(where: { ids.contains($0.id) }) {
+        List(selection: $selection) {
+            ForEach(items) { item in
+                MonitoredAppItemView(appItem: item, iconRevision: iconRevision) {
+                    selection = item.id
                     sheet = .app(item)
                 }
             }
-            .onDeleteCommand(perform: removeSelection)
-            // The Form disables the scroll of its content.
-            .scrollDisabled(false)
-            .frame(maxHeight: monitoredAppListMaxHeight)
-            .fixedSize(horizontal: false, vertical: true)
+        }
+        .overlay {
+            if items.isEmpty {
+                Text("No apps yet. Click + to choose one.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .contextMenu(forSelectionType: MonitoredApp.ID.self) { ids in
+            Button("Remove") {
+                remove(ids)
+            }
+        } primaryAction: { ids in
+            if let item = items.first(where: { ids.contains($0.id) }) {
+                sheet = .app(item)
+            }
+        }
+        .onDeleteCommand(perform: removeSelection)
+        // The Form disables the scroll of its content.
+        .scrollDisabled(false)
+        .frame(minHeight: items.isEmpty ? emptyListHeight : nil, maxHeight: monitoredAppListMaxHeight)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.bottom, listFooterHeight)
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 0) {
+                Divider()
+                listButtons
+            }
+            .frame(height: listFooterHeight)
         }
     }
 
@@ -220,47 +228,47 @@ struct ConfigView: View {
             Spacer()
         }
         .buttonStyle(.borderless)
+        .padding(.horizontal, 10)
+        .frame(maxHeight: .infinity)
     }
 
     private var badgePicker: some View {
-        Picker(selection: $badgeStyle) {
-            Text("Number").tag(BadgeStyle.number)
-            Text("Red badge").tag(BadgeStyle.redBadge)
-            Text("Icon only").tag(BadgeStyle.iconOnly)
-        } label: {
-            Text("Badge")
-            Text(badgeHint)
-        }
-        .pickerStyle(.segmented)
-        .accessibilityIdentifier("badgeStyle")
-        .onChange(of: badgeStyle) { style in
-            AppSettings.badgeStyle = style
-            MonitorEngine.shared.refreshDisplayModes()
+        SettingRow("Badge", hint: badgeHint) { title in
+            Picker(title, selection: $badgeStyle) {
+                Text("Number").tag(BadgeStyle.number)
+                Text("Red badge").tag(BadgeStyle.redBadge)
+                Text("Icon only").tag(BadgeStyle.iconOnly)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("badgeStyle")
+            .onChange(of: badgeStyle) { style in
+                AppSettings.badgeStyle = style
+                MonitorEngine.shared.refreshDisplayModes()
+            }
         }
     }
 
     private var badgeHint: LocalizedStringKey {
         switch badgeStyle {
-        case .number: return "The number of new notifications, next to the icon."
-        case .redBadge: return "A red badge on the icon, like in the Dock."
+        case .number: return "Number next to the icon."
+        case .redBadge: return "Red badge on the icon."
         case .iconOnly: return "Only the icon, with no alerts."
         }
     }
 
     private var nothingNewPicker: some View {
-        Picker(selection: $nothingNewStyle) {
-            Text("Show").tag(NothingNewStyle.show)
-            Text("Dim").tag(NothingNewStyle.dim)
-            Text("Hide").tag(NothingNewStyle.hide)
-        } label: {
-            Text("When there's nothing new")
-            Text(nothingNewHint)
-        }
-        .pickerStyle(.segmented)
-        .accessibilityIdentifier("nothingNewStyle")
-        .onChange(of: nothingNewStyle) { style in
-            AppSettings.nothingNewStyle = style
-            MonitorEngine.shared.refreshDisplayModes()
+        SettingRow("When there's nothing new", hint: nothingNewHint) { title in
+            Picker(title, selection: $nothingNewStyle) {
+                Text("Show").tag(NothingNewStyle.show)
+                Text("Dim").tag(NothingNewStyle.dim)
+                Text("Hide").tag(NothingNewStyle.hide)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("nothingNewStyle")
+            .onChange(of: nothingNewStyle) { style in
+                AppSettings.nothingNewStyle = style
+                MonitorEngine.shared.refreshDisplayModes()
+            }
         }
     }
 
@@ -282,7 +290,7 @@ struct ConfigView: View {
             .buttonStyle(.link)
             .accessibilityIdentifier("about")
             Spacer()
-            Button(String(format: NSLocalizedString("Quit %@", comment: ""), Utils.appName)) {
+            Button("Quit") {
                 exit(0)
             }
             .accessibilityIdentifier("quit")

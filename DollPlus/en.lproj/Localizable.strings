@@ -23,8 +23,8 @@
 "Number" = "Number";
 "Red badge" = "Red badge";
 "Icon only" = "Icon only";
-"The number of new notifications, next to the icon." = "The number of new notifications, next to the icon.";
-"A red badge on the icon, like in the Dock." = "A red badge on the icon, like in the Dock.";
+"Number next to the icon." = "Number next to the icon.";
+"Red badge on the icon." = "Red badge on the icon.";
 "Only the icon, with no alerts." = "Only the icon, with no alerts.";
 "When there's nothing new" = "When there's nothing new";
 "Show" = "Show";
@@ -46,7 +46,7 @@
 "Shortcut to open this window" = "Shortcut to open this window";
 "Click the field, then press the keys." = "Click the field, then press the keys.";
 "About" = "About";
-"Quit %@" = "Quit %@";
+"Quit" = "Quit";
 
 "Version %@" = "Version %@";
 "Shows the Dock badges of your apps in the menu bar. Based on [Doll](https://github.com/xiaogdgenuine/Doll)." = "Shows the Dock badges of your apps in the menu bar. Based on [Doll](https://github.com/xiaogdgenuine/Doll).";

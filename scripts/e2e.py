@@ -627,6 +627,9 @@ class DollPlus:
     def config_frame(self):
         return self._config("frame")["frame"]
 
+    def control_frame(self, identifier: str):
+        return self._config("frame-of", identifier)["frame"]
+
     def show_config_window(self):
         return self._config("show")["frame"]
 
@@ -987,6 +990,23 @@ def badge_picker(doll, a, screenshots):
         doll.pick("badgeStyle", segment)
         doll.wait_app(a, lambda app: app["title"] == title and app["redBadgeLabel"] == red_badge,
                       f"the status item does not show {segment}: title {title!r}, red badge {red_badge!r}")
+
+
+@scenario("Each Badge choice keeps the height of the config window and the place of the Badge picker and the picker below it",
+          steals_focus=True, ui_settings=True)
+def badge_picker_keeps_layout(doll, a, screenshots):
+    def layout():
+        return {"window": doll.config_frame(), "Badge picker": doll.control_frame("badgeStyle"),
+                "nothing new picker": doll.control_frame("nothingNewStyle")}
+
+    doll.show_config_window()
+    time.sleep(RENDER_SETTLE)
+    first = layout()
+    for segment in ("Red badge", "Icon only", "Number"):
+        doll.pick("badgeStyle", segment)
+        time.sleep(RENDER_SETTLE)
+        if (frames := layout()) != first:
+            raise CheckFailed(f"the frames changed from {first} to {frames} after {segment}")
 
 
 @scenario("The picker for nothing new shows, dims or hides the status item", steals_focus=True, ui_settings=True)

@@ -147,7 +147,7 @@ func texts(in element: AXUIElement) -> [String] {
 
 let usage = """
 usage: config-driver PID rows | texts | select NAME | open NAME | sheet | toggle ID | pick ID LABEL | press ID | enabled ID
-       | remove NAME | add NAME | frame | show | move DX DY | close | activate
+       | remove NAME | add NAME | frame | frame-of ID | show | move DX DY | close | activate
 """
 let arguments = CommandLine.arguments
 guard arguments.count >= 3, let pid = pid_t(arguments[1]) else {
@@ -159,10 +159,10 @@ func configWindow() -> AXUIElement? {
     children(of: app).first { subrole($0) == "AXStandardWindow" }
 }
 
-func frame(of window: AXUIElement) -> CGRect? {
+func frame(of element: AXUIElement) -> CGRect? {
     var origin = CGPoint.zero
     var size = CGSize.zero
-    guard let positionValue = attribute(window, kAXPositionAttribute), let sizeValue = attribute(window, kAXSizeAttribute),
+    guard let positionValue = attribute(element, kAXPositionAttribute), let sizeValue = attribute(element, kAXSizeAttribute),
           AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin), AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else {
         return nil
     }
@@ -196,6 +196,9 @@ case ("texts", nil):
     printJSON(["texts": texts(in: showConfigWindow())])
 case ("frame", nil):
     printJSON(["frame": frameJSON(configWindow().flatMap(frame(of:)))])
+case ("frame-of", let id?):
+    let target = waitFor("the control \(id)") { element(id, in: showConfigWindow()) }
+    printJSON(["frame": frameJSON(frame(of: target))])
 case ("show", nil):
     printJSON(["frame": frameJSON(frame(of: showConfigWindow()))])
 case ("move", _?):
