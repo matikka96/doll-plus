@@ -61,7 +61,7 @@ struct ConfigView: View {
                 badgePicker
                 nothingNewPicker
                 SettingRow("Hide while the app isn't running", hint: "The icon comes back when the app starts.") { title in
-                    Toggle(title, isOn: $hideWhenAppNotRunning)
+                    SettingSwitch(title, isOn: $hideWhenAppNotRunning)
                         .accessibilityIdentifier("hideWhenAppNotRunning")
                         .onChange(of: hideWhenAppNotRunning) { enabled in
                             AppSettings.hideWhenAppNotRunning = enabled
@@ -72,7 +72,7 @@ struct ConfigView: View {
             Section("Alerts") {
                 SettingRow("Show alerts when the menu bar is hidden",
                            hint: iconOnly ? "Doesn't apply to Icon only." : "For example, while an app is full screen.") { title in
-                    Toggle(title, isOn: $showAlertInFullScreenMode)
+                    SettingSwitch(title, isOn: $showAlertInFullScreenMode)
                         .accessibilityIdentifier("showAlertInFullScreenMode")
                         .onChange(of: showAlertInFullScreenMode) { enabled in
                             AppSettings.showAlertInFullScreenMode = enabled
@@ -83,7 +83,7 @@ struct ConfigView: View {
 
             Section {
                 SettingRow("Launch at login") { title in
-                    Toggle(title, isOn: $launchAtLogin)
+                    SettingSwitch(title, isOn: $launchAtLogin)
                         .accessibilityIdentifier("launchAtLogin")
                         .onChange(of: launchAtLogin) { enabled in
                             do {

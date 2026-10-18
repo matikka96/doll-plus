@@ -51,7 +51,7 @@ struct AppSheet: View {
                 }
 
                 SettingRow("Invert the icon in Dark Mode", hint: "For dark, single-colour icons.") { title in
-                    Toggle(title, isOn: $iconIsMask)
+                    SettingSwitch(title, isOn: $iconIsMask)
                         .accessibilityIdentifier("iconIsMask")
                         .onChange(of: iconIsMask) { enabled in
                             AppSettings.toggleIconMask(for: app.bundleId, value: enabled)
@@ -60,7 +60,7 @@ struct AppSheet: View {
                 }
 
                 SettingRow("Point to new notifications", hint: "A big red arrow under the icon while the app is in the background.") { title in
-                    Toggle(title, isOn: $showGiantBadge)
+                    SettingSwitch(title, isOn: $showGiantBadge)
                         .accessibilityIdentifier("giantBadge")
                         .onChange(of: showGiantBadge) { enabled in
                             AppSettings.toggleGiantBadge(for: app.bundleId, value: enabled)

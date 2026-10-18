@@ -34,3 +34,19 @@ struct SettingRow<Control: View>: View {
         }
     }
 }
+
+// labelsHidden() leaves a switch with no AXPress action, so VoiceOver can't flip it.
+struct SettingSwitch: View {
+    let title: LocalizedStringKey
+    @Binding var isOn: Bool
+
+    init(_ title: LocalizedStringKey, isOn: Binding<Bool>) {
+        self.title = title
+        _isOn = isOn
+    }
+
+    var body: some View {
+        Toggle(title, isOn: $isOn)
+            .accessibilityAction { isOn.toggle() }
+    }
+}
