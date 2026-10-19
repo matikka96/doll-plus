@@ -8,7 +8,8 @@
     python3 -I scripts/e2e.py run --quiet       skip the scenarios that take the window focus, and fail a
                                                 scenario that activates Doll Plus or a fixture
     python3 -I scripts/e2e.py list              list the scenarios
-    python3 -I scripts/e2e.py demo [--app PATH] cycle a fixture badge for a manual check
+    python3 -I scripts/e2e.py demo [--app PATH] [--alerts]
+                                                cycle a fixture badge for a manual check
     python3 -I scripts/e2e.py clean-registrations
                                                 unregister from Launch Services each Doll Plus and fixture copy
                                                 outside /Applications, also the copies that no longer exist
@@ -1495,7 +1496,7 @@ def bundle_id_of(binary: Path):
         return None
 
 
-def command_demo(binary: Path, red_badge: bool, hide_when_empty: bool, cycles: int):
+def command_demo(binary: Path, red_badge: bool, hide_when_empty: bool, alerts: bool, cycles: int):
     if bundle_id_of(binary) != APP_BUNDLE_ID:
         sys.exit(f"ERROR  {binary} is not an e2e copy with the bundle ID {APP_BUNDLE_ID}. "
                  "Another copy changes the stored settings of the user")
@@ -1504,7 +1505,7 @@ def command_demo(binary: Path, red_badge: bool, hide_when_empty: bool, cycles: i
         try:
             require_trusted()
             reset_fixtures((a,))
-            with DollPlus("demo", (a,), red_badge, hide_when_empty, binary=binary):
+            with DollPlus("demo", (a,), red_badge, hide_when_empty, alerts, binary=binary):
                 print(f"Doll Plus shows {a.dock_title}. The badge changes every {DEMO_STEP:.0f} s. Press Ctrl-C to stop.", flush=True)
                 for _ in range(cycles):
                     for badge in DEMO_BADGES:
@@ -1551,6 +1552,7 @@ def main():
     d.add_argument("--app", type=Path, default=APP_BINARY, help=f"the e2e copy of {APP.name} or its binary, for example build/e2e/{APP.name} of a PR worktree")
     d.add_argument("--red-badge", action="store_true")
     d.add_argument("--hide-when-empty", action="store_true", help="hide the status item while the badge is empty")
+    d.add_argument("--alerts", action="store_true", help="show the giant arrow and the full-screen alert")
     d.add_argument("--cycles", type=int, default=5)
     sub.add_parser("clean-registrations")
     args = parser.parse_args()
@@ -1570,7 +1572,7 @@ def main():
         sys.exit(command_run(args.names, args.screenshots, args.quiet))
     elif args.command == "demo":
         app = args.app.resolve()
-        command_demo(app / "Contents/MacOS" / APP_BINARY.name if app.suffix == ".app" else app, args.red_badge, args.hide_when_empty, args.cycles)
+        command_demo(app / "Contents/MacOS" / APP_BINARY.name if app.suffix == ".app" else app, args.red_badge, args.hide_when_empty, args.alerts, args.cycles)
     elif args.command == "clean-registrations":
         command_clean_registrations()
 
