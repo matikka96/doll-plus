@@ -125,10 +125,6 @@ enum Utils {
         return false
     }
 
-    static var menubarHeight: CGFloat {
-        NSApplication.shared.menu?.menuBarHeight ?? 0
-    }
-
     static var frontmostProcessId: pid_t? {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
     }

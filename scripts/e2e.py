@@ -8,7 +8,8 @@
     python3 -I scripts/e2e.py run --quiet       skip the scenarios that take the window focus, and fail a
                                                 scenario that activates Doll Plus or a fixture
     python3 -I scripts/e2e.py list              list the scenarios
-    python3 -I scripts/e2e.py demo [--app PATH] cycle a fixture badge for a manual check
+    python3 -I scripts/e2e.py demo [--app PATH] [--alerts]
+                                                cycle a fixture badge for a manual check
     python3 -I scripts/e2e.py clean-registrations
                                                 unregister from Launch Services each Doll Plus and fixture copy
                                                 outside /Applications, also the copies that no longer exist
@@ -59,6 +60,7 @@ CONFIG_WINDOW_FRAME_KEY = "NSWindow Frame DollPlusConfigWindow"
 LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 POLL = 0.25
+FAST_POLL = 0.05
 TIMEOUT = 8.0
 STABLE_WINDOW = 5.0
 RENDER_SETTLE = 1.0
@@ -69,15 +71,17 @@ DEMO_BADGES = ("", "1", "12", "123", "new")
 DEMO_STEP = 3.0
 # NSWindow.Level.popUpMenu, the level of the arrow panel and the alert panel.
 PANEL_LAYER = 101
-ARROW_SIZE = (1000, 800)
+ARROW_SIZE = (500, 400)
 ALERT_DURATION = 3.0
 CLICK_CLOSE_TIMEOUT = 1.0
 ALERT_CLOSE_SLACK = 1.0
-ALERT_CENTER_TOLERANCE = 2
+CENTER_TOLERANCE = 2
 HOVER_DURATION = 3.0
 FULL_SCREEN_SETTLE = 1.5
 TEXT_WINDOW_SIZE = (480, 160)
 ARROW_CLICK_BELOW_ITEM = 150
+# Longer than the move of a status item that grows plus one state write, shorter than the badge poll of 1 s.
+ARROW_SETTLE = 0.6
 # About 3 s at the key interval of the UI driver.
 KEYS_ACROSS_ALERT = "abcdefghijklmnopqrstuvwxyz" * 4
 
@@ -191,7 +195,7 @@ def run(cmd, **kwargs):
     return subprocess.run(cmd, check=True, **kwargs)
 
 
-def wait_until(condition, timeout=TIMEOUT, describe=lambda: "", what=None):
+def wait_until(condition, timeout=TIMEOUT, describe=lambda: "", what=None, poll=POLL):
     deadline = time.monotonic() + timeout
     while True:
         result = condition()
@@ -201,7 +205,7 @@ def wait_until(condition, timeout=TIMEOUT, describe=lambda: "", what=None):
             detail = describe()
             message = f"timed out after {timeout:.0f} s" + (f". {detail}" if detail else "")
             raise CheckFailed(f"{what}: {message}" if what else message)
-        time.sleep(POLL)
+        time.sleep(poll)
 
 
 
@@ -1229,6 +1233,38 @@ def arrow_click_through(doll, a, screenshots):
                what=f"the click on the arrow did not reach the {TEXT.dock_title} window below it")
 
 
+def arrow_below_screen_top(doll, a, badge: str) -> float:
+    set_badge(a, badge)
+    arrow = wait_until(doll.arrow, what="the giant arrow did not show")
+    return arrow.y - screen_of(arrow).y
+
+
+@scenario("The giant arrow shows centered on a status item that grows, with no jump", alerts=True)
+def arrow_growth(doll, a, screenshots):
+    set_badge(a, "3")
+    first = wait_until(doll.arrow, what="the giant arrow did not show", poll=FAST_POLL)
+    time.sleep(ARROW_SETTLE)
+    arrow, item = doll.arrow(), doll.status_item(a)
+    if arrow is None:
+        raise EnvironmentProblem("the giant arrow closed before the status item stopped its growth")
+    for when, shown in (("first shows", first), ("settles", arrow)):
+        if abs(shown.center[0] - item.center[0]) > CENTER_TOLERANCE:
+            raise CheckFailed(f"when the giant arrow {when}, it is at {shown}, not centered on the status item {item}")
+
+
+@scenario("In full screen, the giant arrow shows at the same height below the screen top as in normal mode",
+          alerts=True, steals_focus=True)
+def arrow_full_screen_height(doll, a, screenshots):
+    start_text_fixture()
+    normal = arrow_below_screen_top(doll, a, "3")
+    set_badge(a, "")
+    wait_until(lambda: doll.arrow() is None, what="the giant arrow did not hide after the badge cleared")
+    with full_screen(TEXT):
+        full = arrow_below_screen_top(doll, a, "5")
+    if abs(full - normal) > 1:
+        raise CheckFailed(f"the giant arrow is {full:.0f} pt below the screen top in full screen and {normal:.0f} pt in normal mode")
+
+
 def assert_alert_below_item(doll, fixture: Fixture, panel: Rect):
     item = doll.status_item(fixture)
     screen = next((s for s in screens() if s.contains(panel.center)), None)
@@ -1237,7 +1273,7 @@ def assert_alert_below_item(doll, fixture: Fixture, panel: Rect):
     # Doll Plus keeps the alert on the screen when a full-screen space hides the menu bar.
     top = max(item.max_y, screen.y)
     clamped = panel.x <= screen.x or panel.max_x >= screen.max_x
-    centered = abs(panel.center[0] - item.center[0]) <= ALERT_CENTER_TOLERANCE
+    centered = abs(panel.center[0] - item.center[0]) <= CENTER_TOLERANCE
     if abs(panel.y - top) > 1 or not (centered or (clamped and panel.x <= item.center[0] <= panel.max_x)):
         raise CheckFailed(f"the alert {panel} is not below the status item {item}")
 
@@ -1323,7 +1359,7 @@ def alert_two_screens(doll, a, screenshots):
 
 
 @scenario("With hide when nothing is coming, the status item comes back and the alert shows below it",
-          hide_when_empty=True, alerts=True, steals_focus=True, known_issue=45)
+          hide_when_empty=True, alerts=True, steals_focus=True)
 def alert_hidden_item(doll, a, screenshots):
     doll.wait_app(a, lambda app: not app["visible"], "the status item did not hide")
     start_text_fixture()
@@ -1334,6 +1370,20 @@ def alert_hidden_item(doll, a, screenshots):
         settled_status_item(doll, a)
         if (panel := doll.alert()) is None:
             raise EnvironmentProblem("the alert closed before the status item stopped its move")
+        assert_alert_below_item(doll, a, panel)
+
+
+@scenario("In full screen, the status item grows for a badge and the alert shows below it", alerts=True,
+          steals_focus=True)
+def alert_growing_item(doll, a, screenshots):
+    start_text_fixture()
+    settled_status_item(doll, a)
+    with full_screen(TEXT):
+        set_badge(a, "5")
+        doll.wait_alert("5")
+        settled_status_item(doll, a)
+        if (panel := doll.alert()) is None:
+            raise EnvironmentProblem("the alert closed before the status item stopped its growth")
         assert_alert_below_item(doll, a, panel)
 
 
@@ -1447,7 +1497,7 @@ def bundle_id_of(binary: Path):
         return None
 
 
-def command_demo(binary: Path, red_badge: bool, hide_when_empty: bool, cycles: int):
+def command_demo(binary: Path, red_badge: bool, hide_when_empty: bool, alerts: bool, cycles: int):
     if bundle_id_of(binary) != APP_BUNDLE_ID:
         sys.exit(f"ERROR  {binary} is not an e2e copy with the bundle ID {APP_BUNDLE_ID}. "
                  "Another copy changes the stored settings of the user")
@@ -1456,7 +1506,7 @@ def command_demo(binary: Path, red_badge: bool, hide_when_empty: bool, cycles: i
         try:
             require_trusted()
             reset_fixtures((a,))
-            with DollPlus("demo", (a,), red_badge, hide_when_empty, binary=binary):
+            with DollPlus("demo", (a,), red_badge, hide_when_empty, alerts, binary=binary):
                 print(f"Doll Plus shows {a.dock_title}. The badge changes every {DEMO_STEP:.0f} s. Press Ctrl-C to stop.", flush=True)
                 for _ in range(cycles):
                     for badge in DEMO_BADGES:
@@ -1503,6 +1553,7 @@ def main():
     d.add_argument("--app", type=Path, default=APP_BINARY, help=f"the e2e copy of {APP.name} or its binary, for example build/e2e/{APP.name} of a PR worktree")
     d.add_argument("--red-badge", action="store_true")
     d.add_argument("--hide-when-empty", action="store_true", help="hide the status item while the badge is empty")
+    d.add_argument("--alerts", action="store_true", help="show the giant arrow and the full-screen alert")
     d.add_argument("--cycles", type=int, default=5)
     sub.add_parser("clean-registrations")
     args = parser.parse_args()
@@ -1522,7 +1573,7 @@ def main():
         sys.exit(command_run(args.names, args.screenshots, args.quiet))
     elif args.command == "demo":
         app = args.app.resolve()
-        command_demo(app / "Contents/MacOS" / APP_BINARY.name if app.suffix == ".app" else app, args.red_badge, args.hide_when_empty, args.cycles)
+        command_demo(app / "Contents/MacOS" / APP_BINARY.name if app.suffix == ".app" else app, args.red_badge, args.hide_when_empty, args.alerts, args.cycles)
     elif args.command == "clean-registrations":
         command_clean_registrations()
 
