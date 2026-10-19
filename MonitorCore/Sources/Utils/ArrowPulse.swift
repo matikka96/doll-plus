@@ -2,7 +2,7 @@ import Foundation
 
 public enum ArrowPulse {
     private static let keyframes: [(time: TimeInterval, scale: Double)] = [
-        (0, 0.1), (0.3, 0.5), (0.6, 0.3), (0.9, 0.5), (1.2, 0.3), (1.5, 0.5), (1.9, 0.1),
+        (0, 0.1), (0.3, 0.3), (0.6, 0.2), (0.9, 0.3), (1.3, 0.1),
     ]
     private static let last = keyframes[keyframes.count - 1]
     public static let duration = last.time
