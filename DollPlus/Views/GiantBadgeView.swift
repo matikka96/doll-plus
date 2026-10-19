@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Utils
 
 class GiantBadgeViewController: ObservableObject {
     // Toggle this to zero so animation can start over again
@@ -19,11 +20,7 @@ struct GiantBadgeView: View {
 
     @ObservedObject var controller: GiantBadgeViewController
 
-    @State private var scale: CGFloat = 0.1
-    @State private var animationCounter: Int = 0
-    @State private var yOffset: CGFloat = 0
-    @State private var badgeInnerHoleRadius: CGFloat = 0
-    @State private var badgeInnerContentOffset: CGFloat = 0
+    @State private var pulseCount: Double = 0
 
     var body: some View {
         VStack {
@@ -31,35 +28,33 @@ struct GiantBadgeView: View {
                 .font(.system(size: giantBadgeSize.width / 2))
                 .foregroundColor(.red)
                 .rotationEffect(.degrees(90))
-                .scaleEffect(scale, anchor: .top)
+                .modifier(ArrowPulseEffect(pulseCount: pulseCount))
                 .offset(y: giantBadgeYOffset)
 
             Spacer()
         }
         .frame(width: giantBadgeSize.width, height: giantBadgeSize.height)
         .onReceive(controller.$animationFlag) { _ in
-            animationCounter = 0
-            startAnimation()
-        }
-    }
-
-    func startAnimation() {
-        animationCounter &+= 1
-        let newScale: CGFloat = scale == 0.5 ? 0.3 : 0.5
-        // .repeatCount() modifier got weired bug in macOS(at least in Ventura), it shift the element unpexectedlly
-        // so I have to do this my-self
-        withAnimation(.spring()) {
-            scale = newScale
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                if animationCounter < 5 {
-                    startAnimation()
-                } else {
-                    withAnimation(.spring()) {
-                        scale = 0.1
-                    }
-                }
+            ArrowFrameMeter.begin(duration: ArrowPulse.duration)
+            // A new animation for each step makes the arrow choppy (#64).
+            withAnimation(.linear(duration: ArrowPulse.duration)) {
+                pulseCount = pulseCount.rounded(.down) + 1
             }
         }
     }
 }
 
+private struct ArrowPulseEffect: ViewModifier, Animatable {
+    var pulseCount: Double
+
+    var animatableData: Double {
+        get { pulseCount }
+        set { pulseCount = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        ArrowFrameMeter.recordFrame()
+        let time = (pulseCount - pulseCount.rounded(.down)) * ArrowPulse.duration
+        return content.scaleEffect(ArrowPulse.scale(at: time), anchor: .top)
+    }
+}
