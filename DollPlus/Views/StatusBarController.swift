@@ -27,7 +27,8 @@ class StatusBarController {
     private var notificationHideWork: DispatchWorkItem?
     private var notificationScreen: NSScreen?
     private var iconWindowObservers: [NSObjectProtocol] = []
-    private var pendingPanelShow: DispatchWorkItem?
+    private var pendingPanelShow: (() -> Void)?
+    private var pendingPanelShowTimeout: DispatchWorkItem?
 
     public var statusItem: NSStatusItem!
     public var monitoredApp: MonitoredApp? {
@@ -81,6 +82,7 @@ class StatusBarController {
     }
 
     @objc func onIconClicked(sender: AnyObject) {
+        cancelPendingPanelShow()
         hideGiantBadge()
         hideNotificationPanel()
 
@@ -140,6 +142,7 @@ class StatusBarController {
             return
         }
         position?.backUp()
+        cancelPendingPanelShow()
         hideNotificationPanel()
         statusItem.isVisible = false
     }
@@ -182,6 +185,7 @@ class StatusBarController {
         }
 
         if newText.isEmpty {
+            cancelPendingPanelShow()
             hideGiantBadge()
             hideNotificationPanel()
         }
@@ -204,11 +208,13 @@ class StatusBarController {
                         self?.tryShowGiantBadge(text)
                     }
                 }
-                if iconWindowWillMove {
+                if iconWindowWillMove || pendingPanelShow != nil {
                     showAfterIconWindowMove(showPanels)
                 } else {
                     showPanels()
                 }
+            } else {
+                cancelPendingPanelShow()
             }
         }
 
@@ -259,19 +265,29 @@ class StatusBarController {
     }
 
     func hideGiantBadge() {
-        pendingPanelShow?.cancel()
         giantBadgePanel.setIsVisible(false)
     }
 
-    // The menu bar moves the icon window after a show or a growth of the item, in a later run loop pass (#61).
     private func showAfterIconWindowMove(_ show: @escaping () -> Void) {
-        pendingPanelShow?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            self?.pendingPanelShow = nil
-            show()
+        cancelPendingPanelShow()
+        pendingPanelShow = show
+        let timeout = DispatchWorkItem { [weak self] in
+            self?.runPendingPanelShow()
         }
-        pendingPanelShow = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + iconWindowMoveTimeout, execute: work)
+        pendingPanelShowTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + iconWindowMoveTimeout, execute: timeout)
+    }
+
+    private func runPendingPanelShow() {
+        let show = pendingPanelShow
+        cancelPendingPanelShow()
+        show?()
+    }
+
+    private func cancelPendingPanelShow() {
+        pendingPanelShowTimeout?.cancel()
+        pendingPanelShowTimeout = nil
+        pendingPanelShow = nil
     }
 
     private func tryShowNotificationPanel(newText: String) {
@@ -308,24 +324,31 @@ class StatusBarController {
         DispatchQueue.main.asyncAfter(deadline: .now() + notificationDuration, execute: hideWork)
     }
 
-    // The menu bar moves or resizes the icon window after a show or a growth of the item (#45, #61).
-    // No object filter, because AppKit can give the button a new window.
+    // After a show or a growth of the item, the menu bar resizes the icon window at once and moves it about 0.2 s later (#45, #61).
     private func followIconWindow() {
-        iconWindowObservers = [NSWindow.didMoveNotification, NSWindow.didResizeNotification].map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
-                guard let self, let iconWindow = statusItem.button?.window, notification.object as? NSWindow === iconWindow else {
-                    return
-                }
-                iconWindowDidChangeFrame(iconWindow, name: name)
+        iconWindowObservers = [
+            observeIconWindow(NSWindow.didMoveNotification) { controller, iconWindow in
+                controller.runPendingPanelShow()
+                controller.iconWindowDidChangeFrame(iconWindow)
+            },
+            observeIconWindow(NSWindow.didResizeNotification) { controller, iconWindow in
+                controller.iconWindowDidChangeFrame(iconWindow)
+            },
+        ]
+    }
+
+    // No object filter, because AppKit can give the button a new window.
+    private func observeIconWindow(_ name: Notification.Name,
+                                   handle: @escaping (StatusBarController, NSWindow) -> Void) -> NSObjectProtocol {
+        NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+            guard let self, let iconWindow = statusItem.button?.window, notification.object as? NSWindow === iconWindow else {
+                return
             }
+            handle(self, iconWindow)
         }
     }
 
-    private func iconWindowDidChangeFrame(_ iconWindow: NSWindow, name: Notification.Name) {
-        if name == NSWindow.didMoveNotification, let pendingPanelShow {
-            pendingPanelShow.perform()
-            pendingPanelShow.cancel()
-        }
+    private func iconWindowDidChangeFrame(_ iconWindow: NSWindow) {
         if giantBadgePanel.isVisible {
             repositionGiantBadge()
         }
@@ -354,13 +377,13 @@ class StatusBarController {
     }
 
     private func hideNotificationPanel() {
-        pendingPanelShow?.cancel()
         notificationHideWork?.cancel()
         notificationScreen = nil
         notificationPanel?.orderOut(nil)
     }
 
     func destroy() {
+        cancelPendingPanelShow()
         hideNotificationPanel()
         stopFollowingIconWindow()
         if let monitoredApp = monitoredApp {
