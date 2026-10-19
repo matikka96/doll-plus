@@ -7,6 +7,7 @@ let defaultIconSize: CGFloat = 20
 let defaultIconFrameSize = NSSize(width: defaultIconSize, height: defaultIconSize)
 let defaultIcon = #imageLiteral(resourceName: "DefaultStatusBarIcon")
 private let notificationDuration: TimeInterval = 3
+private let iconWindowMoveTimeout: TimeInterval = 0.5
 
 class StatusBarController {
     private var statusBar: NSStatusBar!
@@ -26,6 +27,7 @@ class StatusBarController {
     private var notificationHideWork: DispatchWorkItem?
     private var notificationScreen: NSScreen?
     private var iconWindowObservers: [NSObjectProtocol] = []
+    private var pendingPanelShow: DispatchWorkItem?
 
     public var statusItem: NSStatusItem!
     public var monitoredApp: MonitoredApp? {
@@ -151,6 +153,7 @@ class StatusBarController {
     }
 
     func updateBadgeText(_ text: String?, force: Bool = false) {
+        let iconWidthBefore = statusItem.isVisible ? statusItem.button?.window?.frame.width : nil
         showStatusBar()
 
         let newText = text ?? ""
@@ -171,6 +174,7 @@ class StatusBarController {
         updateBadgeIcon(icon: adjustedIcon, size: showsRedBadge ? nil : defaultIconFrameSize)
         statusItem.button?.title = showsText ? newText : ""
         statusItem.length = showsText ? NSStatusItem.variableLength : defaultIconSize
+        let iconWindowWillMove = statusItem.button?.window?.frame.width != iconWidthBefore
 
         guard !state.showOnlyAppIcon else {
             latestBadgeText = newText
@@ -184,17 +188,27 @@ class StatusBarController {
 
         let newMessageCount = Int(newText) ?? 0
         if latestBadgeText != newText {
-            if AppSettings.showAlertInFullScreenMode, !newText.isEmpty {
-                tryShowNotificationPanel(newText: newText)
-            }
-
+            let showsAlert = AppSettings.showAlertInFullScreenMode && !newText.isEmpty
             let frontmostAppIsMonitoredApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == monitoredApp?.bundleId
             let showsGiantBadge = !frontmostAppIsMonitoredApp && AppSettings.isGiantBadgeEnabled(for: monitoredApp?.bundleId ?? "")
                 && !newText.isEmpty && newMessageCount >= latestMessageCount
-            if showsGiantBadge {
-                tryShowGiantBadge(text)
-            } else {
+            if !showsGiantBadge {
                 hideGiantBadge()
+            }
+            if showsAlert || showsGiantBadge {
+                let showPanels = { [weak self] in
+                    if showsAlert {
+                        self?.tryShowNotificationPanel(newText: newText)
+                    }
+                    if showsGiantBadge {
+                        self?.tryShowGiantBadge(text)
+                    }
+                }
+                if iconWindowWillMove {
+                    showAfterIconWindowMove(showPanels)
+                } else {
+                    showPanels()
+                }
             }
         }
 
@@ -245,7 +259,19 @@ class StatusBarController {
     }
 
     func hideGiantBadge() {
+        pendingPanelShow?.cancel()
         giantBadgePanel.setIsVisible(false)
+    }
+
+    // The menu bar moves the icon window after a show or a growth of the item, in a later run loop pass (#61).
+    private func showAfterIconWindowMove(_ show: @escaping () -> Void) {
+        pendingPanelShow?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.pendingPanelShow = nil
+            show()
+        }
+        pendingPanelShow = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + iconWindowMoveTimeout, execute: work)
     }
 
     private func tryShowNotificationPanel(newText: String) {
@@ -290,12 +316,16 @@ class StatusBarController {
                 guard let self, let iconWindow = statusItem.button?.window, notification.object as? NSWindow === iconWindow else {
                     return
                 }
-                iconWindowDidChangeFrame(iconWindow)
+                iconWindowDidChangeFrame(iconWindow, name: name)
             }
         }
     }
 
-    private func iconWindowDidChangeFrame(_ iconWindow: NSWindow) {
+    private func iconWindowDidChangeFrame(_ iconWindow: NSWindow, name: Notification.Name) {
+        if name == NSWindow.didMoveNotification, let pendingPanelShow {
+            pendingPanelShow.perform()
+            pendingPanelShow.cancel()
+        }
         if giantBadgePanel.isVisible {
             repositionGiantBadge()
         }
@@ -324,6 +354,7 @@ class StatusBarController {
     }
 
     private func hideNotificationPanel() {
+        pendingPanelShow?.cancel()
         notificationHideWork?.cancel()
         notificationScreen = nil
         notificationPanel?.orderOut(nil)

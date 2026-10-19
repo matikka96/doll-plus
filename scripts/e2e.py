@@ -1239,16 +1239,17 @@ def arrow_below_screen_top(doll, a, badge: str) -> float:
     return arrow.y - screen_of(arrow).y
 
 
-@scenario("The giant arrow shows centered on a status item that grows", alerts=True)
+@scenario("The giant arrow shows centered on a status item that grows, with no jump", alerts=True)
 def arrow_growth(doll, a, screenshots):
     set_badge(a, "3")
-    wait_until(doll.arrow, what="the giant arrow did not show", poll=FAST_POLL)
+    first = wait_until(doll.arrow, what="the giant arrow did not show", poll=FAST_POLL)
     time.sleep(ARROW_SETTLE)
     arrow, item = doll.arrow(), doll.status_item(a)
     if arrow is None:
         raise EnvironmentProblem("the giant arrow closed before the status item stopped its growth")
-    if abs(arrow.center[0] - item.center[0]) > CENTER_TOLERANCE:
-        raise CheckFailed(f"the giant arrow {arrow} is not centered on the status item {item}")
+    for when, shown in (("first shows", first), ("settles", arrow)):
+        if abs(shown.center[0] - item.center[0]) > CENTER_TOLERANCE:
+            raise CheckFailed(f"when the giant arrow {when}, it is at {shown}, not centered on the status item {item}")
 
 
 @scenario("In full screen, the giant arrow shows at the same height below the screen top as in normal mode",
