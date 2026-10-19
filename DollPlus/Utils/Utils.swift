@@ -7,6 +7,7 @@
 
 import Foundation
 import AppKit
+import Utils
 
 enum Utils {
 
@@ -20,37 +21,26 @@ enum Utils {
     }
 
     static var currentActiveWindowIsFullScreen: Bool {
+        let screens = NSScreen.screens
         guard let activeWindow = frontmostWindowAX,
-              let screenWithMouse = NSScreen.screenWithMouse else {
+              let windowFrame = frameAX(of: activeWindow),
+              let screenIndex = ScreenGeometry.indexOfScreen(holding: windowFrame, screenFrames: screens.map(\.frame)) else {
             return false
         }
-        
-        var activeWindowSizeAX: AnyObject?
-        AXUIElementCopyAttributeValue(
-            activeWindow, kAXSizeAttribute as CFString, &activeWindowSizeAX
-        )
-        if activeWindowSizeAX != nil {
-            var windowSize = CGSize.zero
-            AXValueGetValue(activeWindowSizeAX as! AXValue, .cgSize, &windowSize)
-            
-            // In Mac with notch on menubar, this is the only way I found to detect either current window is in fullscreen
-            if windowSize.height == screenWithMouse.frame.size.height - (NSApplication.shared.mainMenu?.menuBarHeight ?? 0) {
-                return true
-            }
+        let windowScreen = screens[screenIndex]
+
+        // In Mac with notch on menubar, this is the only way I found to detect either current window is in fullscreen
+        if windowFrame.height == windowScreen.frame.size.height - (NSApplication.shared.mainMenu?.menuBarHeight ?? 0) {
+            return true
         }
-        
+
         var fullScreenButton: AnyObject?
         AXUIElementCopyAttributeValue(
             activeWindow, kAXFullScreenButtonAttribute as CFString, &fullScreenButton
         )
-        var fullScreenButtonPositionAX: AnyObject?
-        if let fullScreenButton = fullScreenButton {
-            AXUIElementCopyAttributeValue(fullScreenButton as! AXUIElement, kAXPositionAttribute as CFString, &fullScreenButtonPositionAX)
-        }
-        if fullScreenButtonPositionAX != nil,
-           let mainScreen = NSScreen.screens.first {
-            var fullScreenButtonPosition = CGPoint.zero
-            AXValueGetValue(fullScreenButtonPositionAX as! AXValue, .cgPoint, &fullScreenButtonPosition)
+        if let fullScreenButton,
+           let fullScreenButtonPosition = positionAX(of: fullScreenButton as! AXUIElement),
+           let mainScreen = screens.first {
             
             // If mac connected to multiple displays,
             
@@ -117,12 +107,39 @@ enum Utils {
              *  Screen2.visibleFrame.maxY = -20 + 50(Screen2.visibleFrame.height) = 30
              *  Screen2.menubar.frame.maxY = 50(MainScreen.frame.maxY) - 30(Screen2.visibleFrame.maxY) = 20
              */
-            let menubarYPositionThresholdInActiveScreen = mainScreen.frame.maxY - screenWithMouse.visibleFrame.maxY
+            let menubarYPositionThresholdInActiveScreen = mainScreen.frame.maxY - windowScreen.visibleFrame.maxY
             // If a window is fullscreen, it's fullscreen button(The whole toolbar actually) y offset is less than menubar.frame.maxY
             return fullScreenButtonPosition.y < menubarYPositionThresholdInActiveScreen
         }
         
         return false
+    }
+
+    private static func frameAX(of element: AXUIElement) -> CGRect? {
+        guard let position = positionAX(of: element), let size = sizeAX(of: element) else {
+            return nil
+        }
+        return CGRect(origin: position, size: size)
+    }
+
+    private static func positionAX(of element: AXUIElement) -> CGPoint? {
+        guard let valueAX = attributeAX(of: element, kAXPositionAttribute) else { return nil }
+        var position = CGPoint.zero
+        AXValueGetValue(valueAX, .cgPoint, &position)
+        return position
+    }
+
+    private static func sizeAX(of element: AXUIElement) -> CGSize? {
+        guard let valueAX = attributeAX(of: element, kAXSizeAttribute) else { return nil }
+        var size = CGSize.zero
+        AXValueGetValue(valueAX, .cgSize, &size)
+        return size
+    }
+
+    private static func attributeAX(of element: AXUIElement, _ attribute: String) -> AXValue? {
+        var valueAX: AnyObject?
+        AXUIElementCopyAttributeValue(element, attribute as CFString, &valueAX)
+        return valueAX.map { $0 as! AXValue }
     }
 
     static var frontmostProcessId: pid_t? {

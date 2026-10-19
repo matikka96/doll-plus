@@ -484,19 +484,24 @@ def leave_full_screen(fixture: Fixture, pid: int):
     time.sleep(FULL_SCREEN_SETTLE)
 
 
+# On a screen with a notch, a full-screen window starts below the notch.
+def filled_screen(window: Rect) -> Rect | None:
+    return next((s for s in screens()
+                 if s.contains_rect(window) and (s.x, s.width, s.max_y) == (window.x, window.width, window.max_y)), None)
+
+
 @contextmanager
 def full_screen(fixture: Fixture):
     pid = fixture_pids(fixture)[0]
     ui("fullscreen", pid, "on")
     try:
         with as_environment_problem(f"{fixture.dock_title} did not go full screen: "):
-            window = wait_until(lambda: (w := window_state(pid))["fullScreen"] and Rect.of(w["bounds"]) in screens() and w,
+            screen = wait_until(lambda: (w := window_state(pid))["fullScreen"] and filled_screen(Rect.of(w["bounds"])),
                                 describe=lambda: f"window: {window_state(pid)}")
         time.sleep(FULL_SCREEN_SETTLE)
-        bounds = Rect.of(window["bounds"])
-        # Doll Plus checks the full screen on the screen with the pointer.
-        move_pointer(bounds.center)
-        yield bounds
+        # A user in full screen has the pointer on the window.
+        move_pointer(screen.center)
+        yield screen
     except BaseException:
         # A failure to leave full screen must not hide the failure of the scenario.
         with suppress(CheckFailed, EnvironmentProblem):
@@ -1389,12 +1394,35 @@ def alert_two_screens(doll, a, screenshots):
         raise ScenarioSkipped("the Mac has one screen")
     start_text_fixture()
     place_text_window(second.center)
-    with full_screen(TEXT) as window:
-        if window != second:
-            raise EnvironmentProblem(f"{TEXT.dock_title} went full screen on {window}, not on the second screen {second}")
+    with full_screen(TEXT) as screen:
+        if screen != second:
+            raise EnvironmentProblem(f"{TEXT.dock_title} went full screen on {screen}, not on the second screen {second}")
         panel = assert_alert_keeps_focus(doll, a, "9")
     if not any(s.contains_rect(panel) for s in all_screens):
         raise CheckFailed(f"the alert {panel} is not fully on one of the screens {all_screens}")
+
+
+@scenario("With two screens and the pointer on the other screen, the alert shows for a window in full screen",
+          alerts=True, steals_focus=True)
+def alert_pointer_elsewhere(doll, a, screenshots):
+    all_screens = screens()
+    if len(all_screens) < 2:
+        raise ScenarioSkipped("the Mac has one screen")
+    start_text_fixture()
+    for badge, window_screen in enumerate(all_screens, start=2):
+        place_text_window(window_screen.center)
+        with full_screen(TEXT) as screen:
+            if screen != window_screen:
+                raise EnvironmentProblem(f"{TEXT.dock_title} went full screen on {screen}, not on {window_screen}")
+            pointer_screen = next(s for s in all_screens if s != window_screen)
+            move_pointer(pointer_screen.center)
+            set_badge(a, str(badge))
+            try:
+                doll.wait_alert(str(badge))
+            except CheckFailed as error:
+                raise CheckFailed(f"with {TEXT.dock_title} in full screen on {window_screen} and the pointer on "
+                                  f"{pointer_screen}: {error}")
+            doll.wait_no_alert(ALERT_DURATION + ALERT_CLOSE_SLACK, "the alert did not close")
 
 
 @scenario("With hide when nothing is coming, the status item comes back and the alert shows below it",
