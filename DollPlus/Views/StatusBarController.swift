@@ -19,7 +19,7 @@ class StatusBarController {
     private var drawnState: DrawnState?
 
     private var giantBadgeController = GiantBadgeViewController()
-    private var giantBadgePanel = NSPanel(contentRect: NSRect(origin: .zero, size: defaultWindowSize),
+    private(set) var giantBadgePanel = NSPanel(contentRect: NSRect(origin: .zero, size: defaultWindowSize),
                               styleMask: [.nonactivatingPanel],
                               backing: .buffered, defer: false)
     private var lastTimeShowingGiantBadge = Date()

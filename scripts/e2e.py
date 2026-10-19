@@ -82,6 +82,11 @@ TEXT_WINDOW_SIZE = (480, 160)
 ARROW_CLICK_BELOW_ITEM = 150
 # Longer than the move of a status item that grows plus one state write, shorter than the badge poll of 1 s.
 ARROW_SETTLE = 0.6
+# The arrow shows again for a new badge 3 s after it last showed. The badge poll of 1 s runs during each show.
+ARROW_REPEAT = 3.3
+ARROW_SHOWS = 4
+# A frame interval longer than this many refresh intervals loses a frame.
+LOST_FRAME_FACTOR = 1.5
 # About 3 s at the key interval of the UI driver.
 KEYS_ACROSS_ALERT = "abcdefghijklmnopqrstuvwxyz" * 4
 
@@ -1279,6 +1284,24 @@ def arrow_two_screens(doll, a, screenshots):
     if abs(arrow.y - item_screen.y - expected) > 1:
         raise CheckFailed(f"with the pointer on {other}, the giant arrow {arrow} is not {expected:.0f} pt below the top "
                           f"of the status item screen {item_screen}")
+
+
+@scenario("The giant arrow animation loses no frames while the badge poll runs", alerts=True)
+def arrow_smooth(doll, a, screenshots):
+    for badge in range(1, ARROW_SHOWS + 1):
+        set_badge(a, str(badge))
+        wait_until(lambda: len(doll.state().get("arrowAnimations", [])) >= badge,
+                   what=f"the giant arrow did not start an animation for the badge '{badge}'")
+        time.sleep(ARROW_REPEAT)
+    refresh = doll.app(a)["arrowRefreshInterval"]
+    for badge, animation in enumerate(doll.state()["arrowAnimations"], start=1):
+        after_last_frame = animation["duration"] - sum(animation["intervals"])
+        intervals = animation["intervals"] + [after_last_frame]
+        lost = sum(round(interval / refresh) - 1 for interval in intervals if interval > LOST_FRAME_FACTOR * refresh)
+        if lost:
+            longest = max(intervals) * 1000
+            raise CheckFailed(f"the arrow animation for the badge '{badge}' lost {lost} frames in {len(intervals)} intervals "
+                              f"of {refresh * 1000:.1f} ms, the longest is {longest:.0f} ms")
 
 
 def assert_alert_below_item(doll, fixture: Fixture, panel: Rect):

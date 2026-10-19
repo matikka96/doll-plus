@@ -6,12 +6,16 @@ enum DebugStateWriter {
     private static let stateFileArgument = "DollPlusStateFile"
     private static let writeInterval: TimeInterval = 0.25
     private static var timer: Timer?
+    // tiffRepresentation takes up to 50 ms on the main thread.
+    private static let imageDigests = NSMapTable<NSImage, NSString>(keyOptions: [.weakMemory, .objectPointerPersonality],
+                                                                     valueOptions: .strongMemory)
 
     static func setup() {
         guard let path = UserDefaults.standard.string(forKey: stateFileArgument) else {
             return
         }
 
+        ArrowFrameMeter.isOn = true
         let url = URL(fileURLWithPath: path)
         timer = Timer.scheduledTimer(withTimeInterval: writeInterval, repeats: true) { _ in
             write(to: url)
@@ -25,12 +29,60 @@ enum DebugStateWriter {
             "updatedAt": Date().timeIntervalSince1970,
             "mainScreenHeight": NSScreen.screens.first?.frame.height ?? 0,
             "apps": MonitorEngine.shared.statusBars.compactMap(\.debugState),
+            "arrowAnimations": ArrowFrameMeter.animations,
         ]
 
         guard let data = try? JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys]) else {
             return
         }
         try? data.write(to: url, options: .atomic)
+    }
+
+    fileprivate static func digest(of image: NSImage) -> String {
+        if let digest = imageDigests.object(forKey: image) {
+            return digest as String
+        }
+        let digest = image.tiffRepresentation.map { SHA256.hash(data: $0).description } ?? ""
+        imageDigests.setObject(digest as NSString, forKey: image)
+        return digest
+    }
+}
+
+enum ArrowFrameMeter {
+    fileprivate static var isOn = false
+    private static var duration: TimeInterval = 0
+    private static var end: CFTimeInterval = 0
+    private static var lastFrame: CFTimeInterval?
+    private static var intervals: [Double] = []
+    fileprivate private(set) static var animations: [[String: Any]] = []
+
+    static func begin(duration: TimeInterval) {
+        guard isOn else {
+            return
+        }
+        self.duration = duration
+        lastFrame = nil
+        intervals = []
+        animations.append(["duration": duration, "intervals": intervals])
+    }
+
+    static func recordFrame() {
+        guard isOn else {
+            return
+        }
+        let now = CACurrentMediaTime()
+        // SwiftUI starts the animation clock at the first frame, so the time before it loses no frame.
+        guard let lastFrame else {
+            lastFrame = now
+            end = now + duration
+            return
+        }
+        guard now <= end else {
+            return
+        }
+        intervals.append(now - lastFrame)
+        animations[animations.count - 1]["intervals"] = intervals
+        self.lastFrame = now
     }
 }
 
@@ -54,8 +106,9 @@ private extension StatusBarController {
             "width": button?.bounds.width ?? 0,
             "redrawCount": redrawCount,
             "redBadgeLabel": redBadgeLabel ?? NSNull(),
-            "imageDigest": button?.image?.tiffRepresentation.map { SHA256.hash(data: $0).description } ?? "",
+            "imageDigest": button?.image.map(DebugStateWriter.digest(of:)) ?? "",
             "frame": [frame.minX, frame.minY, frame.width, frame.height],
+            "arrowRefreshInterval": giantBadgePanel.screen?.minimumRefreshInterval ?? 0,
         ]
     }
 }
