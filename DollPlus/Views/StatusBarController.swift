@@ -130,7 +130,6 @@ class StatusBarController {
                 self?.updateBadgeText(badge)
             }
 
-            // The arrow goes to the screen with the pointer (#49).
             if self?.giantBadgePanel.isVisible == true {
                 self?.repositionGiantBadge()
             }
@@ -255,13 +254,14 @@ class StatusBarController {
     }
 
     func repositionGiantBadge() {
-        guard let activeScreen = NSScreen.screenWithMouse,
-           let iconFrame = statusItem.button?.window?.frame else {
+        guard let iconWindow = statusItem.button?.window,
+              let screen = NSScreen.screen(of: iconWindow) else {
             return
         }
+        let iconFrame = iconWindow.frame
 
         // On macOS 26, visibleFrame leaves out the menu bar also in full screen (#62).
-        giantBadgePanel.setFrameOrigin(NSPoint(x: iconFrame.midX - giantBadgeSize.width / 2, y: activeScreen.visibleFrame.maxY - giantBadgeSize.height + giantBadgeYOffset))
+        giantBadgePanel.setFrameOrigin(NSPoint(x: iconFrame.midX - giantBadgeSize.width / 2, y: screen.visibleFrame.maxY - giantBadgeSize.height + giantBadgeYOffset))
     }
 
     func hideGiantBadge() {
@@ -293,7 +293,7 @@ class StatusBarController {
     private func tryShowNotificationPanel(newText: String) {
         guard Utils.currentActiveWindowIsFullScreen,
               let iconWindow = statusItem.button?.window,
-              let screen = iconWindow.screen ?? NSScreen.screenWithMouse else {
+              let screen = NSScreen.screen(of: iconWindow) else {
             return
         }
 
@@ -470,5 +470,11 @@ extension NSScreen {
         })
 
         return screenWithMouse
+    }
+
+    // In full screen the menu bar moves the icon window above all screens.
+    static func screen(of iconWindow: NSWindow) -> NSScreen? {
+        let midX = iconWindow.frame.midX
+        return iconWindow.screen ?? screens.first { $0.frame.minX <= midX && midX < $0.frame.maxX } ?? screenWithMouse
     }
 }

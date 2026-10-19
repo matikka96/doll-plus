@@ -1182,7 +1182,6 @@ def assert_no_tooltip(doll, when: str):
 def no_tooltip(doll, a, screenshots):
     start_text_fixture()
     item = doll.status_item(a)
-    # Doll Plus places the arrow on the screen with the pointer (#49).
     away = screen_of(item).center
     move_pointer(item.center)
     time.sleep(HOVER_DURATION)
@@ -1203,8 +1202,6 @@ def no_tooltip(doll, a, screenshots):
           alerts=True, steals_focus=True)
 def arrow_click_through(doll, a, screenshots):
     start_text_fixture()
-    # Doll Plus places the arrow on the screen with the pointer (#49).
-    move_pointer(screen_of(settled_status_item(doll, a)).center)
     set_badge(a, "3")
     doll.wait_badge(a, "3")
     arrow = wait_until(doll.arrow, what="the giant arrow did not show")
@@ -1263,6 +1260,25 @@ def arrow_full_screen_height(doll, a, screenshots):
         full = arrow_below_screen_top(doll, a, "5")
     if abs(full - normal) > 1:
         raise CheckFailed(f"the giant arrow is {full:.0f} pt below the screen top in full screen and {normal:.0f} pt in normal mode")
+
+
+@scenario("With two screens and the pointer on the other screen, the giant arrow shows below the status item",
+          alerts=True)
+def arrow_two_screens(doll, a, screenshots):
+    item_screen = screen_of(settled_status_item(doll, a))
+    other = next((s for s in screens() if s != item_screen), None)
+    if other is None:
+        raise ScenarioSkipped("the Mac has one screen")
+    move_pointer(item_screen.center)
+    expected = arrow_below_screen_top(doll, a, "3")
+    set_badge(a, "")
+    wait_until(lambda: doll.arrow() is None, what="the giant arrow did not hide after the badge cleared")
+    move_pointer(other.center)
+    set_badge(a, "4")
+    arrow = wait_until(doll.arrow, what="the giant arrow did not show")
+    if abs(arrow.y - item_screen.y - expected) > 1:
+        raise CheckFailed(f"with the pointer on {other}, the giant arrow {arrow} is not {expected:.0f} pt below the top "
+                          f"of the status item screen {item_screen}")
 
 
 def assert_alert_below_item(doll, fixture: Fixture, panel: Rect):
