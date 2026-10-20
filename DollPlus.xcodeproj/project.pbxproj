@@ -38,6 +38,7 @@
 		B0CC3C8828547594006F6361 /* Utils.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C8728547594006F6361 /* Utils.swift */; };
 		B0CC3C9128556203006F6361 /* NSImageExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC3C9028556203006F6361 /* NSImageExtensions.swift */; };
 		D0115E0C0000000000000004 /* DebugStateWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0115E0C0000000000000003 /* DebugStateWriter.swift */; };
+		D0115E0C0000000000000006 /* DollImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0115E0C0000000000000005 /* DollImport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -75,6 +76,7 @@
 		B0CC3C9028556203006F6361 /* NSImageExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NSImageExtensions.swift; sourceTree = "<group>"; };
 		D0115E0C0000000000000001 /* DollPlus.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = DollPlus.xcconfig; sourceTree = "<group>"; };
 		D0115E0C0000000000000003 /* DebugStateWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugStateWriter.swift; sourceTree = "<group>"; };
+		D0115E0C0000000000000005 /* DollImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DollImport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -190,6 +192,7 @@
 				893D12FD296DB2EF0071F166 /* HotkeyManager.swift */,
 				893D1301296EF6AC0071F166 /* Storage.swift */,
 				D0115E0C0000000000000003 /* DebugStateWriter.swift */,
+				D0115E0C0000000000000005 /* DollImport.swift */,
 			);
 			path = Source;
 			sourceTree = "<group>";
@@ -294,6 +297,7 @@
 				3A05F079FD8ED95600C00E09 /* NSEventExtensions.swift in Sources */,
 				893D12FE296DB2EF0071F166 /* HotkeyManager.swift in Sources */,
 				D0115E0C0000000000000004 /* DebugStateWriter.swift in Sources */,
+				D0115E0C0000000000000006 /* DollImport.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

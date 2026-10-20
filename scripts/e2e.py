@@ -19,6 +19,7 @@ runs as a child process, so macOS checks the permission of the terminal.
 """
 
 import argparse
+import base64
 import fcntl
 import fnmatch
 import itertools
@@ -58,6 +59,13 @@ CONTROL_DIR = Path.home() / "Library/Caches/com.matikka96.DollPlus.e2e/control"
 # Each scenario starts with a centered config window, not the frame that the last scenario moved.
 # The name after "NSWindow Frame " is configWindowFrameName in MonitorEngine.swift.
 CONFIG_WINDOW_FRAME_KEY = "NSWindow Frame DollPlusConfigWindow"
+# Stand-ins for the com.xiaogd.Doll domain and the app_icons folder of the user.
+DOLL_DOMAIN = "com.matikka96.DollPlus.e2e.doll"
+DOLL_APP_ICONS = E2E / "doll-app-icons"
+APP_ICONS = Path.home() / "Library/Application Support" / APP_BUNDLE_ID / "app_icons"
+# The key of AppSettings.dollImportChecked. Each launch stores it.
+DOLL_IMPORT_CHECKED_KEY = "DollPlus_Doll_Import_Checked"
+ONE_PIXEL_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==")
 LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 POLL = 0.25
@@ -551,6 +559,7 @@ class DollPlus:
         self.icon_only = icon_only
         self.binary = binary
         self.process = None
+        self.doll_import = False
 
     def __enter__(self):
         subprocess.run(["defaults", "delete", APP_BUNDLE_ID, CONFIG_WINDOW_FRAME_KEY], capture_output=True)
@@ -580,7 +589,13 @@ class DollPlus:
             "SETTINGS_APPS_ICON_MASK": {},
             "ApplePersistenceIgnoreState": "YES",
             "DollPlusStateFile": str(STATE_FILE),
+            "DollPlusDollDomain": DOLL_DOMAIN,
+            "DollPlusDollAppIcons": str(DOLL_APP_ICONS),
         }
+        # With no settings in the launch arguments, Doll Plus imports the settings of Doll.
+        if self.doll_import:
+            settings = {key: value for key, value in settings.items()
+                        if key != "SETTING_MONITORED_APP_IDS" and not key.startswith("SETTINGS_")}
         if self.ui_settings:
             stored = {key: value for key, value in settings.items() if key.startswith("SETTINGS_")}
             store_settings(stored)
@@ -752,9 +767,17 @@ def plist_argument(value) -> str:
 
 # A setting in the argument domain hides a change that the config window makes.
 def store_settings(settings: dict):
-    exported = subprocess.run(["defaults", "export", APP_BUNDLE_ID, "-"], capture_output=True).stdout
-    domain = plistlib.loads(exported) if exported else {}
-    run(["defaults", "import", APP_BUNDLE_ID, "-"], input=plistlib.dumps({**domain, **settings}))
+    run(["defaults", "import", APP_BUNDLE_ID, "-"], input=plistlib.dumps({**export_domain(APP_BUNDLE_ID), **settings}))
+
+
+def export_domain(domain: str) -> dict:
+    exported = subprocess.run(["defaults", "export", domain, "-"], capture_output=True).stdout
+    return plistlib.loads(exported) if exported else {}
+
+
+def delete_stored_keys(keys):
+    for key in keys:
+        subprocess.run(["defaults", "delete", APP_BUNDLE_ID, key], capture_output=True)
 
 
 
@@ -1152,8 +1175,7 @@ def stored_default(key: str):
 
 
 def delete_status_item_keys(fixture: Fixture):
-    for key in fixture.status_item_keys:
-        subprocess.run(["defaults", "delete", APP_BUNDLE_ID, key], capture_output=True)
+    delete_stored_keys(fixture.status_item_keys)
 
 
 def settled_status_item(doll, fixture: Fixture) -> Rect:
@@ -1580,6 +1602,61 @@ def reset_fixtures(fixtures):
         set_badge(fixture, "")
     for fixture in fixtures:
         launch_fixture(fixture)
+
+
+def delete_doll_import_traces(settings):
+    subprocess.run(["defaults", "delete", DOLL_DOMAIN], capture_output=True)
+    shutil.rmtree(DOLL_APP_ICONS, ignore_errors=True)
+    delete_stored_keys([*settings, DOLL_IMPORT_CHECKED_KEY])
+
+
+@scenario("On a first launch, Doll Plus imports the monitored apps, the settings and the custom icons of Doll, one time only",
+          fixtures=("a", "b"))
+def doll_import(doll, a, b, screenshots):
+    # The key names of Doll. Today Doll Plus stores each setting under the same name.
+    doll_settings = {
+        "SETTING_MONITORED_APP_IDS": f"{b.bundle_id},{a.bundle_id}",
+        "SETTINGS_Hide_When_App_Not_Running": True,
+        "SETTINGS_Hide_When_Nothing_Coming": True,
+        "SETTINGS_Grayout_Icon_When_Nothing_Coming": True,
+        "SETTINGS_SHOW_ALERT_IN_FULL_SCREEN_Mode": False,
+        "SETTINGS_Show_As_Red_Badge": True,
+        "SETTINGS_Show_Only_App_Icon": True,
+        "SETTINGS_Giant_Badge_Enabled_Apps": {a.bundle_id: True},
+        "SETTINGS_APPS_ICON_MASK": {b.bundle_id: True},
+    }
+    icon = APP_ICONS / f"{a.bundle_id}.png"
+    doll.stop()
+    try:
+        delete_doll_import_traces(doll_settings)
+        icon.unlink(missing_ok=True)
+        run(["defaults", "import", DOLL_DOMAIN, "-"], input=plistlib.dumps({**doll_settings, "SETTINGS_Unknown_Key": True}))
+        DOLL_APP_ICONS.mkdir(parents=True)
+        (DOLL_APP_ICONS / icon.name).write_bytes(ONE_PIXEL_PNG)
+        doll_before = export_domain(DOLL_DOMAIN)
+
+        doll.doll_import = True
+        doll.start()
+        if (ids := monitored_bundle_ids(doll)) != [b.bundle_id, a.bundle_id]:
+            raise CheckFailed(f"Doll Plus monitors {ids}, expected {[b.bundle_id, a.bundle_id]}")
+        stored = export_domain(APP_BUNDLE_ID)
+        if differences := {key: stored.get(key) for key, value in doll_settings.items() if stored.get(key) != value}:
+            raise CheckFailed(f"the stored settings differ from the settings of Doll: {differences}")
+        if "SETTINGS_Unknown_Key" in stored:
+            raise CheckFailed("Doll Plus copied the unknown Doll key SETTINGS_Unknown_Key")
+        if not icon.is_file() or icon.read_bytes() != ONE_PIXEL_PNG:
+            raise CheckFailed(f"Doll Plus did not copy the custom icon to {icon}")
+        if export_domain(DOLL_DOMAIN) != doll_before or [p.name for p in DOLL_APP_ICONS.iterdir()] != [icon.name]:
+            raise CheckFailed("the import changed the settings or the icons of Doll")
+
+        run(["defaults", "write", DOLL_DOMAIN, "SETTINGS_Show_As_Red_Badge", "-bool", "false"])
+        doll.relaunch()
+        if export_domain(APP_BUNDLE_ID).get("SETTINGS_Show_As_Red_Badge") is not True:
+            raise CheckFailed("Doll Plus imported the settings of Doll again on a second launch")
+    finally:
+        doll.stop()
+        delete_doll_import_traces(doll_settings)
+        icon.unlink(missing_ok=True)
 
 
 def scenario_outcome(s: Scenario, screenshots: bool) -> tuple[str, str]:
