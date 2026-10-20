@@ -88,6 +88,8 @@ ARROW_REPEAT = 3.3
 ARROW_SHOWS = 4
 # The pulse time of a frame can trail its time since the first frame by about one frame.
 PULSE_TIME_TOLERANCE = 0.05
+# The badge poll comes at a random time after the presses, so one try can show the arrow after its pulse.
+ARROW_RESTART_TRIES = 3
 # A frame interval longer than this many refresh intervals loses a frame.
 LOST_FRAME_FACTOR = 1.5
 # About 3 s at the key interval of the UI driver.
@@ -1317,31 +1319,34 @@ def arrow_smooth(doll, a, screenshots):
 def arrow_pulse_restart(doll, a, screenshots):
     set_badge(a, "1")
     wait_until(lambda: len(doll.state().get("arrowAnimations", [])) >= 1, what="the giant arrow did not start a pulse")
-    # The badge poll of 1 s cannot hide and show the arrow within one pulse. A press hides the arrow at once.
-    doll.click_status_item()
-    wait_app_state(a, lambda s: s["active"], "active after a press on the status item")
-    doll.click_status_item()
-    wait_app_state(a, lambda s: not s["active"], "not active after a second press on the status item")
-    if doll.arrow() is not None:
-        raise CheckFailed("the giant arrow did not hide after a press on the status item")
-    set_badge(a, "2")
-    wait_until(lambda: len(doll.state().get("arrowAnimations", [])) >= 2,
-               what="the giant arrow did not start a pulse for the badge '2'")
-    first, second = doll.state()["arrowAnimations"][:2]
-    duration = second["duration"]
-    gap = second["startedAt"] - first["startedAt"]
-    if gap >= duration:
-        raise EnvironmentProblem(f"the giant arrow showed again {gap:.2f} s after "
-                                 f"the first show, after the end of the pulse of {duration} s")
+    for badge in range(2, 2 + ARROW_RESTART_TRIES):
+        # The badge poll of 1 s cannot hide and show the arrow within one pulse. A press hides the arrow at once.
+        doll.click_status_item()
+        wait_app_state(a, lambda s: s["active"], "active after a press on the status item")
+        doll.click_status_item()
+        wait_app_state(a, lambda s: not s["active"], "not active after a second press on the status item")
+        if doll.arrow() is not None:
+            raise CheckFailed("the giant arrow did not hide after a press on the status item")
+        set_badge(a, str(badge))
+        wait_until(lambda: len(doll.state().get("arrowAnimations", [])) >= badge,
+                   what=f"the giant arrow did not start a pulse for the badge '{badge}'")
+        previous, restart = doll.state()["arrowAnimations"][badge - 2:badge]
+        duration = restart["duration"]
+        gap = restart["startedAt"] - previous["startedAt"]
+        if gap < duration:
+            break
+    else:
+        raise EnvironmentProblem(f"in {ARROW_RESTART_TRIES} tries, the giant arrow did not show again within its pulse "
+                                 f"of {duration} s. The last try took {gap:.2f} s")
     time.sleep(duration + ARROW_SETTLE)
-    second = doll.state()["arrowAnimations"][1]
-    elapsed = [0.0] + list(itertools.accumulate(second["intervals"]))
-    for since_start, pulse_time in zip(elapsed, second["pulseTimes"]):
+    restart = doll.state()["arrowAnimations"][badge - 1]
+    elapsed = [0.0] + list(itertools.accumulate(restart["intervals"]))
+    for since_start, pulse_time in zip(elapsed, restart["pulseTimes"]):
         # The last frame can come at the end of the pulse, where the pulse time goes back to 0.
         error = min(abs(pulse_time - since_start), abs(pulse_time + duration - since_start))
         if error > PULSE_TIME_TOLERANCE:
-            raise CheckFailed(f"{since_start:.2f} s after the second pulse started, the arrow is at the pulse time "
-                              f"{pulse_time:.2f} s, not {since_start:.2f} s")
+            raise CheckFailed(f"{since_start:.2f} s after the pulse for the badge '{badge}' started, the arrow is at "
+                              f"the pulse time {pulse_time:.2f} s, not {since_start:.2f} s")
 
 
 def assert_alert_below_item(doll, fixture: Fixture, panel: Rect):
