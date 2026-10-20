@@ -1062,7 +1062,7 @@ def icon_only_hide(doll, a, screenshots):
         raise CheckFailed(f"the status item shows a number: {app}")
 
 
-@scenario("With Icon only, the hide switch and the Hide segment are enabled, and the alert switch is disabled",
+@scenario("With Icon only, the hide switch and the Hide segment are enabled, and the alert switch is disabled until Number",
           steals_focus=True, ui_settings=True, icon_only=True)
 def icon_only_controls(doll, a, screenshots):
     if not doll.enabled("hideWhenAppNotRunning"):
@@ -1071,11 +1071,20 @@ def icon_only_controls(doll, a, screenshots):
         raise CheckFailed("the switch 'Show alerts when the menu bar is hidden' is enabled with Icon only")
     if (hints := [t for t in doll.config_texts() if "Doesn't apply" in t]) != ["Doesn't apply to Icon only."]:
         raise CheckFailed(f"the config window shows the hints {hints}, expected only the hint of the alert switch")
+    if "Only the icon, with no alerts." not in doll.config_texts():
+        raise CheckFailed("the config window does not show the Badge hint 'Only the icon, with no alerts.'")
     set_badge(a, "")
     wait_dock_label(a, "")
     doll.wait_badge(a, "")
     doll.pick("nothingNewStyle", "Hide")
     doll.wait_app(a, lambda app: not app["visible"], "the Hide segment did not hide the status item")
+    doll.pick("badgeStyle", "Number")
+    wait_until(lambda: doll.enabled("showAlertInFullScreenMode"),
+               what="the switch 'Show alerts when the menu bar is hidden' stays disabled after Number")
+    alert_hint = "For example, while an app is full screen."
+    wait_until(lambda: alert_hint in (texts := doll.config_texts()) and not any("Doesn't apply" in t for t in texts),
+               describe=lambda: f"the config window shows {doll.config_texts()}",
+               what=f"the alert switch does not show only the hint '{alert_hint}' after Number")
 
 
 @scenario("The red arrow switch of the app sheet shows the arrow for a new badge", steals_focus=True, ui_settings=True)
