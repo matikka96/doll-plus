@@ -70,8 +70,10 @@ SEEDED_POSITION = 120
 CONFIG_WINDOW_OFFSET = (60, 40)
 DEMO_BADGES = ("", "1", "12", "123", "new")
 DEMO_STEP = 3.0
-# NSWindow.Level.popUpMenu, the level of the arrow panel and the alert panel.
-PANEL_LAYER = 101
+# NSWindow.Level.popUpMenu, the level of the alert panel.
+ALERT_LAYER = 101
+ARROW_LAYER = ALERT_LAYER + 1
+PANEL_LAYERS = (ALERT_LAYER, ARROW_LAYER)
 ARROW_SIZE = (500, 400)
 ALERT_DURATION = 3.0
 CLICK_CLOSE_TIMEOUT = 1.0
@@ -191,6 +193,9 @@ class Rect:
 
     def contains_rect(self, other: "Rect") -> bool:
         return self.x <= other.x and other.max_x <= self.max_x and self.y <= other.y and other.max_y <= self.max_y
+
+    def intersects(self, other: "Rect") -> bool:
+        return self.x < other.max_x and other.x < self.max_x and self.y < other.max_y and other.y < self.max_y
 
 
 @contextmanager
@@ -425,8 +430,12 @@ def ui(*args):
     return output
 
 
+def windows_front_to_back() -> list[dict]:
+    return [{**w, "bounds": Rect.of(w["bounds"])} for w in ui("windows") if w["alpha"] > 0]
+
+
 def windows_of(pid: int) -> list[dict]:
-    return [{**w, "bounds": Rect.of(w["bounds"])} for w in ui("windows") if w["pid"] == pid and w["alpha"] > 0]
+    return [w for w in windows_front_to_back() if w["pid"] == pid]
 
 
 def screens() -> list[Rect]:
@@ -523,6 +532,11 @@ def restart_dock():
     except CheckFailed:
         raise EnvironmentProblem("the Dock did not restart")
 
+
+
+# A build before #71 gives the arrow the level of the alert.
+def is_arrow_window(window: dict) -> bool:
+    return window["layer"] in PANEL_LAYERS and (window["bounds"].width, window["bounds"].height) == ARROW_SIZE
 
 
 class DollPlus:
@@ -684,19 +698,15 @@ class DollPlus:
     def windows(self) -> list[dict]:
         return windows_of(self.process.pid)
 
-    def panels(self, is_arrow: bool) -> list[Rect]:
-        return [w["bounds"] for w in self.windows()
-                if w["layer"] == PANEL_LAYER and ((w["bounds"].width, w["bounds"].height) == ARROW_SIZE) == is_arrow]
-
     def arrow(self) -> Rect | None:
-        return next(iter(self.panels(is_arrow=True)), None)
+        return next((w["bounds"] for w in self.windows() if is_arrow_window(w)), None)
 
     def alert(self) -> Rect | None:
-        return next(iter(self.panels(is_arrow=False)), None)
+        return next((w["bounds"] for w in self.windows() if w["layer"] == ALERT_LAYER and not is_arrow_window(w)), None)
 
     # A tooltip is a window of its own. The window list of macOS 26 has no status item windows.
     def windows_besides_panels(self) -> list[dict]:
-        return [w for w in self.windows() if w["layer"] != PANEL_LAYER]
+        return [w for w in self.windows() if w["layer"] not in PANEL_LAYERS]
 
     def describe_alert(self) -> str:
         panel = self.alert()
@@ -1347,6 +1357,43 @@ def arrow_pulse_restart(doll, a, screenshots):
         if error > PULSE_TIME_TOLERANCE:
             raise CheckFailed(f"{since_start:.2f} s after the pulse for the badge '{badge}' started, the arrow is at "
                               f"the pulse time {pulse_time:.2f} s, not {since_start:.2f} s")
+
+
+def assert_arrow_in_front(doll, when: str):
+    windows = windows_front_to_back()
+    index = next((i for i, w in enumerate(windows) if w["pid"] == doll.process.pid and is_arrow_window(w)), None)
+    if index is None:
+        raise CheckFailed(f"the giant arrow does not show {when}")
+    arrow = windows[index]["bounds"]
+    if covering := [w for w in windows[:index] if w["bounds"].intersects(arrow)]:
+        raise CheckFailed(f"{when}, these windows are in front of the giant arrow {arrow}: {covering}")
+
+
+def assert_arrow_stays_in_front(doll, a, wait_shown):
+    for badge in ("3", "4"):
+        set_badge(a, badge)
+        wait_shown(badge)
+        if (shows := len(doll.state()["arrowAnimations"])) != 1:
+            raise EnvironmentProblem(f"the giant arrow showed {shows} times, so the second badge change did not come "
+                                     "while the arrow showed")
+        assert_arrow_in_front(doll, f"after the badge change to {badge!r}")
+
+
+@scenario("The giant arrow stays in front of all windows after a second badge change while the arrow shows",
+          alerts=True)
+def arrow_in_front(doll, a, screenshots):
+    def wait_shown(badge):
+        doll.wait_badge(a, badge)
+        wait_until(doll.arrow, what=f"the giant arrow does not show for the badge {badge!r}")
+    assert_arrow_stays_in_front(doll, a, wait_shown)
+
+
+@scenario("In full screen, the giant arrow stays in front of the alert after a second badge change while the arrow shows",
+          alerts=True, steals_focus=True)
+def arrow_in_front_of_alert(doll, a, screenshots):
+    start_text_fixture()
+    with full_screen(TEXT):
+        assert_arrow_stays_in_front(doll, a, doll.wait_alert)
 
 
 def assert_alert_below_item(doll, fixture: Fixture, panel: Rect):
