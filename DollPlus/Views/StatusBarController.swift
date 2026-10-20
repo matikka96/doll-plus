@@ -8,6 +8,9 @@ let defaultIconFrameSize = NSSize(width: defaultIconSize, height: defaultIconSiz
 let defaultIcon = #imageLiteral(resourceName: "DefaultStatusBarIcon")
 private let notificationDuration: TimeInterval = 3
 private let iconWindowMoveTimeout: TimeInterval = 0.5
+private let notificationLevel = NSWindow.Level.popUpMenu
+// In front of the alert, also when the alert shows again while the arrow shows (#71).
+private let giantBadgeLevel = NSWindow.Level(rawValue: notificationLevel.rawValue + 1)
 
 class StatusBarController {
     private var statusBar: NSStatusBar!
@@ -247,7 +250,7 @@ class StatusBarController {
             }
 
             repositionGiantBadge()
-            giantBadgePanel.level = .popUpMenu
+            giantBadgePanel.level = giantBadgeLevel
             giantBadgePanel.setIsVisible(true)
             giantBadgePanel.orderFrontRegardless()
         }
@@ -398,7 +401,7 @@ class StatusBarController {
     private func makeNotificationPanel() -> NSPanel {
         let panel = NonKeyPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                                 backing: .buffered, defer: true)
-        panel.level = .popUpMenu
+        panel.level = notificationLevel
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
