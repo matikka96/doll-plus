@@ -24,7 +24,7 @@ class MonitorEngine {
         
         if let data = UserDefaults.standard.value(forKey: SETTING_MONITORED_APP_IDS) as? String {
             var seenAppIds = Set<String>()
-            let monitoredAppIds = data.split(separator: ",").map(String.init).filter { seenAppIds.insert($0).inserted }
+            let monitoredAppIds = Self.monitoredAppIds(from: data).filter { seenAppIds.insert($0).inserted }
             let monitoredApps: [MonitoredApp] = monitoredAppIds.map { bundleId in
                 guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
                     return MonitoredApp(bundleId, appName: bundleId)
@@ -117,13 +117,21 @@ class MonitorEngine {
         return window
     }
 
-    private func saveSelectedApps() {
-        let data = monitoredApps.map {
-                    $0.bundleId
-                }
-                .joined(separator: ",")
-        UserDefaults.standard.set(data, forKey: SETTING_MONITORED_APP_IDS)
+    static var hasStoredMonitoredApps: Bool {
+        UserDefaults.standard.object(forKey: SETTING_MONITORED_APP_IDS) != nil
+    }
+
+    static func monitoredAppIds(from data: String) -> [String] {
+        data.split(separator: ",").map(String.init)
+    }
+
+    static func storeMonitoredAppIds(_ bundleIds: [String]) {
+        UserDefaults.standard.set(bundleIds.joined(separator: ","), forKey: SETTING_MONITORED_APP_IDS)
         UserDefaults.standard.synchronize()
+    }
+
+    private func saveSelectedApps() {
+        Self.storeMonitoredAppIds(monitoredApps.map(\.bundleId))
     }
 
     private func legacyAppNames(of bundle: Bundle, displayName: String) -> [String] {

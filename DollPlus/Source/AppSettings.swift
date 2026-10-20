@@ -35,6 +35,9 @@ class AppSettings {
         }
     }
 
+    @UserDefaultSetting("DollPlus_Doll_Import_Checked")
+    static var dollImportChecked = false
+
     @UserDefaultSetting("SETTINGS_Giant_Badge_Enabled_Apps")
     static var giantBadgeConfigs: [String: Bool] = [:]
 

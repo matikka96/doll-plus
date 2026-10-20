@@ -4,12 +4,16 @@ import SwiftUI
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         Storage.setup()
+        let importedFromDoll = DollImport.importOnFirstLaunch()
         MonitorEngine.shared.setup()
         HotkeyManager.setup()
         DebugStateWriter.setup()
 
        if AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary) {
            print("Trusted by client")
+       } else if importedFromDoll {
+           // The Accessibility permission of Doll does not apply to Doll Plus. The config window shows a banner for it.
+           MonitorEngine.shared.showConfigWindow()
        }
     }
 
