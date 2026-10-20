@@ -54,6 +54,7 @@ enum ArrowFrameMeter {
     private static var end: CFTimeInterval = 0
     private static var lastFrame: CFTimeInterval?
     private static var intervals: [Double] = []
+    private static var pulseTimes: [Double] = []
     fileprivate private(set) static var animations: [[String: Any]] = []
 
     static func begin(duration: TimeInterval) {
@@ -63,26 +64,40 @@ enum ArrowFrameMeter {
         self.duration = duration
         lastFrame = nil
         intervals = []
-        animations.append(["duration": duration, "intervals": intervals])
+        pulseTimes = []
+        animations.append(["startedAt": CACurrentMediaTime(), "duration": duration, "intervals": intervals,
+                           "pulseTimes": pulseTimes])
     }
 
-    static func recordFrame() {
-        guard isOn else {
+    static func recordFrame(pulseTime: TimeInterval) {
+        guard isOn, !animations.isEmpty else {
             return
         }
         let now = CACurrentMediaTime()
         // SwiftUI starts the animation clock at the first frame, so the time before it loses no frame.
         guard let lastFrame else {
+            // A view with a new identity renders once at the pulse time 0, before the animation starts.
+            guard pulseTime > 0 else {
+                return
+            }
             lastFrame = now
             end = now + duration
+            pulseTimes = [pulseTime]
+            writeFrames()
             return
         }
         guard now <= end else {
             return
         }
         intervals.append(now - lastFrame)
-        animations[animations.count - 1]["intervals"] = intervals
+        pulseTimes.append(pulseTime)
+        writeFrames()
         self.lastFrame = now
+    }
+
+    private static func writeFrames() {
+        animations[animations.count - 1]["intervals"] = intervals
+        animations[animations.count - 1]["pulseTimes"] = pulseTimes
     }
 }
 
