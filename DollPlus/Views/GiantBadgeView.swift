@@ -21,6 +21,7 @@ struct GiantBadgeView: View {
     @ObservedObject var controller: GiantBadgeViewController
 
     @State private var pulseCount: Double = 0
+    @State private var pulseID = 0
 
     var body: some View {
         VStack {
@@ -29,6 +30,9 @@ struct GiantBadgeView: View {
                 .foregroundColor(.red)
                 .rotationEffect(.degrees(90))
                 .modifier(ArrowPulseEffect(pulseCount: pulseCount))
+                // SwiftUI adds a new animation to the one in flight. A new identity drops the old one (#67).
+                .id(pulseID)
+                .transition(.identity)
                 .offset(y: giantBadgeYOffset)
 
             Spacer()
@@ -36,6 +40,7 @@ struct GiantBadgeView: View {
         .frame(width: giantBadgeSize.width, height: giantBadgeSize.height)
         .onReceive(controller.$animationFlag) { _ in
             ArrowFrameMeter.begin(duration: ArrowPulse.duration)
+            pulseID += 1
             // A new animation for each step makes the arrow choppy (#64).
             withAnimation(.linear(duration: ArrowPulse.duration)) {
                 pulseCount = pulseCount.rounded(.down) + 1
@@ -53,8 +58,8 @@ private struct ArrowPulseEffect: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
-        ArrowFrameMeter.recordFrame()
         let time = (pulseCount - pulseCount.rounded(.down)) * ArrowPulse.duration
+        ArrowFrameMeter.recordFrame(pulseTime: time)
         return content.scaleEffect(ArrowPulse.scale(at: time), anchor: .top)
     }
 }
